@@ -1,0 +1,82 @@
+/* frontend/src/pages/ProjectsPage.css */
+
+.projects-layout {
+  min-height: 100vh;
+  background: linear-gradient(#f3c05b, #fbeedc);
+  display: flex;
+  flex-direction: column;
+}
+
+.projects-topbar {
+  height: 56px;
+  background: #f6f0e8;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 32px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+
+.projects-topbar__brand {
+  font-weight: 600;
+}
+
+.projects-topbar__right {
+  display: flex;
+  gap: 16px;
+}
+
+.projects-topbar__icon-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.projects-main {
+  max-width: 1100px;
+  margin: 40px auto 60px;
+  width: 100%;
+}
+
+.projects-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.projects-header h1 {
+  margin-bottom: 8px;
+}
+
+.projects-header p {
+  margin: 0 0 20px;
+  color: #444;
+}
+
+.projects-new-btn {
+  padding: 10px 22px;
+  border-radius: 999px;
+  border: none;
+  background: #333;
+  color: #fff;
+  cursor: pointer;
+}
+
+.projects-grid {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.projects-empty {
+  text-align: center;
+  color: #555;
+  width: 100%;
+  margin-top: 40px;
+}
+
+.projects-empty.error {
+  color: #b03a2e;
+}
