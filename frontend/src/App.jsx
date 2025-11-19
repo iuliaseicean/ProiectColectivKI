@@ -1,8 +1,17 @@
+// frontend/src/App.jsx
 import { useEffect, useState } from "react";
-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+} from "react-router-dom";
 
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
+
+import ProjectsPage from "./pages/ProjectsPage";
+import ProjectDetailPage from "./pages/ProjectDetailPage";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
@@ -11,15 +20,15 @@ export default function App() {
   const [me, setMe] = useState(null);
   const [backendMessage, setBackendMessage] = useState("Checking backend...");
 
-  // Health check backend
+  // -------- BACKEND HEALTH CHECK ----------
   useEffect(() => {
     fetch(`${API_URL}/`)
       .then((res) => res.json())
-      .then((data) => setBackendMessage(data.message || "Backend OK"))
+      .then((data) => setBackendMessage(data.message || "Backend OK ✅"))
       .catch(() => setBackendMessage("Backend unreachable ❌"));
   }, []);
 
-  // Autologin check
+  // -------- AUTOLOGIN / ME ----------
   useEffect(() => {
     if (!token) {
       setMe(null);
@@ -27,17 +36,24 @@ export default function App() {
     }
 
     const fetchMe = async () => {
-      const res = await fetch(`${API_URL}/auth/me`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      try {
+        const res = await fetch(`${API_URL}/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
 
-      if (!res.ok) {
+        if (!res.ok) {
+          localStorage.removeItem("token");
+          setToken("");
+          setMe(null);
+          return;
+        }
+
+        const data = await res.json();
+        setMe(data);
+      } catch {
         localStorage.removeItem("token");
         setToken("");
         setMe(null);
-      } else {
-        const data = await res.json();
-        setMe(data);
       }
     };
 
@@ -50,56 +66,104 @@ export default function App() {
     setMe(null);
   }
 
+  // helper pentru onLoginSuccess – acceptă fie string, fie {access_token}
+  function handleLoginSuccess(tok) {
+    const accessToken = typeof tok === "string" ? tok : tok?.access_token;
+    if (!accessToken) return;
+
+    localStorage.setItem("token", accessToken);
+    setToken(accessToken);
+  }
+
   return (
     <Router>
-      <Routes>
+      <>
+        <Routes>
+          {/* LOGIN */}
+          <Route
+            path="/login"
+            element={
+              token ? (
+                <Navigate to="/projects" replace />
+              ) : (
+                <LoginPage onLoginSuccess={handleLoginSuccess} />
+              )
+            }
+          />
 
-        {/* LOGIN */}
-        <Route
-          path="/login"
-          element={
-            token ? (
-              <Navigate to="/" replace />
-            ) : (
-              <LoginPage
-                onLoginSuccess={(tok) => {
-                  localStorage.setItem("token", tok.access_token);
-                  setToken(tok.access_token);
-                }}
-              />
-            )
-          }
-        />
+          {/* REGISTER */}
+          <Route
+            path="/register"
+            element={
+              token ? <Navigate to="/projects" replace /> : <RegisterPage />
+            }
+          />
 
-        {/* REGISTER */}
-        <Route
-          path="/register"
-          element={
-            token ? <Navigate to="/" replace /> : <RegisterPage />
-          }
-        />
+          {/* MAIN: redirect / -> /projects când ești logat */}
+          <Route
+            path="/"
+            element={
+              token ? (
+                <Navigate to="/projects" replace />
+              ) : (
+                <Navigate to="/login" replace />
+              )
+            }
+          />
 
-        {/* DASHBOARD */}
-        <Route
-          path="/"
-          element={
-            token ? (
-              <div style={{ padding: 20 }}>
-                <h2>Welcome{me?.email ? `, ${me.email}` : ""} 👋</h2>
-                <button onClick={handleLogout}>Logout</button>
-                <pre>{JSON.stringify(me, null, 2)}</pre>
+          {/* PROJECTS LIST (Project Screen) */}
+          <Route
+            path="/projects"
+            element={
+              token ? (
+                <ProjectsPage user={me} onLogout={handleLogout} />
+              ) : (
+                <Navigate to="/login" replace />
+              )
+            }
+          />
 
-                <p style={{ marginTop: 20, fontSize: 12, color: "#666" }}>
-                  {backendMessage}
-                </p>
-              </div>
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
+          {/* PROJECT DETAIL (Project Cards Screen) */}
+          <Route
+            path="/projects/:projectId"
+            element={
+              token ? (
+                <ProjectDetailPage user={me} onLogout={handleLogout} />
+              ) : (
+                <Navigate to="/login" replace />
+              )
+            }
+          />
 
-      </Routes>
+          {/* fallback – orice altceva merge la /projects sau /login */}
+          <Route
+            path="*"
+            element={
+              token ? (
+                <Navigate to="/projects" replace />
+              ) : (
+                <Navigate to="/login" replace />
+              )
+            }
+          />
+        </Routes>
+
+        {/* mesaj mic cu status backend, vizibil peste tot */}
+        <div
+          style={{
+            position: "fixed",
+            bottom: 10,
+            left: 0,
+            right: 0,
+            textAlign: "center",
+            fontSize: 12,
+            color: "#666",
+            pointerEvents: "none",
+          }}
+        >
+          {backendMessage}
+        </div>
+      </>
     </Router>
   );
 }
