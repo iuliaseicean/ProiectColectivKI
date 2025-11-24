@@ -80,3 +80,91 @@
 .projects-empty.error {
   color: #b03a2e;
 }
+
+/* ---------- CREATE PROJECT MODAL ---------- */
+.projects-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9000;
+}
+
+.projects-modal {
+  background: #fff;
+  width: min(680px, 92vw);
+  padding: 32px;
+  border-radius: 18px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+  color: #111; /* force text visible */
+}
+
+.projects-modal h2 {
+  margin: 0 0 18px;
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: #111;
+}
+
+.projects-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.projects-modal-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-weight: 600;
+  color: #111;
+}
+
+/* inputs */
+.projects-modal-form input,
+.projects-modal-form textarea {
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid #ccc;
+  font-size: 1rem;
+  color: #111 !important;      /* <-- fix text alb */
+  background: #fff !important; /* <-- fix fundal */
+}
+
+.projects-modal-form textarea {
+  min-height: 140px;
+  resize: vertical;
+}
+
+.projects-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.projects-modal-actions button {
+  border: none;
+  border-radius: 999px;
+  padding: 10px 20px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.projects-modal-actions button[type="button"] {
+  background: #ddd;
+  color: #111;
+}
+
+.projects-modal-actions button[type="submit"] {
+  background: #222;
+  color: #fff;
+}
+
+.projects-modal-error {
+  color: #c0392b;
+  font-size: 0.95rem;
+  font-weight: 600;
+}

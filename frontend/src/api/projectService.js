@@ -7,34 +7,103 @@ function getAuthHeader() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+// helper: parsează răspunsul și aruncă eroare cu mesaj util
+async function handleJson(res, defaultError) {
+  if (res.ok) return res.json();
+
+  // încearcă să citească eroarea din JSON (FastAPI: { detail: "..." })
+  let errMsg = defaultError;
+  try {
+    const data = await res.json();
+    errMsg =
+      data?.detail ||
+      data?.message ||
+      JSON.stringify(data) ||
+      defaultError;
+  } catch {
+    // fallback pe text
+    const text = await res.text().catch(() => "");
+    if (text) errMsg = text;
+  }
+
+  throw new Error(errMsg);
+}
+
 // GET /projects
 export async function fetchProjects() {
   const res = await fetch(`${API_URL}/projects`, {
     headers: {
-      "Content-Type": "application/json",
       ...getAuthHeader(),
     },
   });
 
-  if (!res.ok) {
-    throw new Error("Failed to load projects");
-  }
-
-  return res.json(); // list[ProjectRead]
+  return handleJson(res, "Failed to load projects");
 }
 
 // GET /projects/{id}
 export async function fetchProjectById(id) {
   const res = await fetch(`${API_URL}/projects/${id}`, {
     headers: {
-      "Content-Type": "application/json",
       ...getAuthHeader(),
     },
   });
 
-  if (!res.ok) {
-    throw new Error("Project not found");
-  }
+  return handleJson(res, "Project not found");
+}
 
-  return res.json(); // ProjectRead
+// POST /projects
+export async function createProject(payload) {
+  const res = await fetch(`${API_URL}/projects`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeader(),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return handleJson(res, "Failed to create project");
+}
+
+// PATCH /projects/{id}
+export async function updateProject(id, payload) {
+  const res = await fetch(`${API_URL}/projects/${id}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeader(),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return handleJson(res, "Failed to update project");
+}
+
+// PUT /projects/{id} (NU ai endpoint acum, îl folosești doar dacă îl adaugi în backend)
+export async function replaceProject(id, payload) {
+  const res = await fetch(`${API_URL}/projects/${id}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeader(),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return handleJson(res, "Failed to replace project");
+}
+
+// DELETE /projects/{id}
+// ATENȚIE: backend-ul tău NU are endpoint DELETE încă.
+// Dacă nu îl adăugați, funcția asta va da 405.
+export async function deleteProject(id) {
+  const res = await fetch(`${API_URL}/projects/${id}`, {
+    method: "DELETE",
+    headers: {
+      ...getAuthHeader(),
+    },
+  });
+
+  await handleJson(res, "Failed to delete project");
+  return true;
 }
