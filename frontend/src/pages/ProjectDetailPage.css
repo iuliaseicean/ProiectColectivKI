@@ -7,6 +7,8 @@
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
+/* TOP BAR */
+
 .project-detail-topbar {
   display: flex;
   justify-content: space-between;
@@ -29,13 +31,35 @@
   font-size: 0.9rem;
 }
 
+/* MAIN LAYOUT */
+
 .project-detail-main {
   max-width: 1100px;
   margin: 0 auto;
 }
 
+/* HEADER / INFO SECTION */
+
 .project-detail-header h1 {
   margin-bottom: 8px;
+  color: #222;
+}
+
+.project-detail-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.project-detail-edit-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 8px 16px;
+  cursor: pointer;
+  background: linear-gradient(90deg, #1e88e5, #ffb74d);
+  color: white;
+  font-weight: 500;
 }
 
 .project-detail-description {
@@ -50,6 +74,86 @@
   margin-bottom: 32px;
 }
 
+.project-detail-info h4 {
+  margin: 0 0 4px;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #725f3f;
+}
+
+.project-detail-info p {
+  margin: 0;
+  color: #222;
+}
+
+/* EDIT FORM */
+
+.project-detail-edit-form {
+  background: #fffaf4;
+  border-radius: 16px;
+  padding: 18px 20px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+  margin-bottom: 24px;
+}
+
+.project-detail-edit-form label {
+  display: block;
+  font-size: 0.9rem;
+  color: #333;
+  margin-bottom: 10px;
+}
+
+.project-detail-edit-form textarea,
+.project-detail-edit-form input[type="text"],
+.project-detail-edit-form input[type="number"] {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+  padding: 8px 10px;
+  margin-top: 4px;
+  font-size: 0.9rem;
+  color: #222;
+  background: #fff;
+}
+
+.project-detail-edit-form textarea {
+  resize: vertical;
+  min-height: 70px;
+}
+
+.project-detail-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.project-detail-edit-actions button {
+  border-radius: 999px;
+  border: none;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.project-detail-edit-actions button[type="button"] {
+  background: #ddd;
+}
+
+.project-detail-edit-actions button[type="submit"] {
+  background: #222;
+  color: #fff;
+}
+
+.project-detail-save-error {
+  margin-top: 8px;
+  color: #b03a2e;
+  font-size: 0.85rem;
+}
+
+/* COLUMNS: TASKS + AI */
+
 .project-detail-columns {
   display: grid;
   grid-template-columns: 1.1fr 1fr;
@@ -61,6 +165,13 @@
   padding: 20px;
   border-radius: 18px;
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.08);
+  color: #222;
+}
+
+.project-detail-column h2 {
+  margin-top: 0;
+  margin-bottom: 8px;
+  color: #222;
 }
 
 .project-detail-subtitle {
@@ -84,8 +195,10 @@
   padding: 40px 24px;
   background: #f9e8d4;
   text-align: center;
-  color: #777;
+  color: #444;
 }
+
+/* AI BUTTONS */
 
 .project-detail-ai-buttons button {
   width: 100%;
@@ -96,4 +209,50 @@
   background: #222;
   color: white;
   cursor: pointer;
+}
+
+/* TASK ITEMS – FIX WHITE TEXT ISSUE */
+
+.project-task-list {
+  margin-top: 16px;
+}
+
+.project-task-item {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.project-task-title {
+  font-weight: 600;
+  font-size: 1rem;
+  color: #222;      /* vizibil pe fundal deschis */
+  margin-bottom: 2px;
+}
+
+.project-task-description {
+  color: #444;      /* descriere vizibilă */
+  font-size: 0.9rem;
+}
+
+/* ERROR STATE */
+
+.project-detail-error {
+  max-width: 400px;
+  margin: 80px auto;
+  padding: 20px;
+  background: #fff;
+  border-radius: 12px;
+  text-align: center;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.08);
+}
+
+.project-detail-error button {
+  margin-top: 10px;
+  border-radius: 999px;
+  border: none;
+  padding: 8px 16px;
+  cursor: pointer;
+  background: #222;
+  color: #fff;
 }

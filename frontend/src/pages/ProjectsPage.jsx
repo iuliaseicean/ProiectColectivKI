@@ -1,6 +1,10 @@
 // frontend/src/pages/ProjectsPage.jsx
 import { useEffect, useState } from "react";
-import { fetchProjects, createProject } from "../api/projectService";
+import {
+  fetchProjects,
+  createProject,
+  deleteProject,
+} from "../api/projectService";
 import ProjectCard from "../components/ProjectCard";
 import "./ProjectsPage.css";
 
@@ -73,7 +77,6 @@ export default function ProjectsPage() {
 
       const newProject = await createProject(payload);
 
-      // adaugă imediat în listă (fără reload)
       setProjects((prev) => [newProject, ...prev]);
 
       setShowCreate(false);
@@ -82,6 +85,19 @@ export default function ProjectsPage() {
       setCreateError(err.message || "Failed to create project");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleDelete(projectId) {
+    if (!window.confirm("Are you sure you want to delete this project?")) {
+      return;
+    }
+
+    try {
+      await deleteProject(projectId);
+      setProjects((prev) => prev.filter((p) => p.id !== projectId));
+    } catch (err) {
+      alert(err.message || "Failed to delete project");
     }
   }
 
@@ -122,7 +138,11 @@ export default function ProjectsPage() {
           )}
 
           {projects.map((project) => (
-            <ProjectCard key={project.id} project={project} />
+            <ProjectCard
+              key={project.id}
+              project={project}
+              onDelete={handleDelete}
+            />
           ))}
         </section>
       </main>
