@@ -7,12 +7,33 @@ function getAuthHeader() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-// helper: parsează răspunsul și aruncă eroare cu mesaj util
+/**
+ * Helper: parsează răspunsul HTTP.
+ * - dacă e 204 → returnează null fără să încerce res.json()
+ * - dacă e ok și are JSON → întoarce JSON
+ * - dacă nu e ok → aruncă Error cu un mesaj util
+ */
 async function handleJson(res, defaultError) {
-  if (res.ok) return res.json();
+  // 204 No Content => nu există body, deci nu facem res.json()
+  if (res.status === 204) {
+    if (!res.ok) {
+      throw new Error(defaultError);
+    }
+    return null;
+  }
 
-  // încearcă să citească eroarea din JSON (FastAPI: { detail: "..." })
+  if (res.ok) {
+    try {
+      return await res.json();
+    } catch {
+      // răspuns ok, dar fără JSON valid
+      return null;
+    }
+  }
+
+  // Eroare HTTP — încercăm să extragem mesaj
   let errMsg = defaultError;
+
   try {
     const data = await res.json();
     errMsg =
@@ -21,7 +42,6 @@ async function handleJson(res, defaultError) {
       JSON.stringify(data) ||
       defaultError;
   } catch {
-    // fallback pe text
     const text = await res.text().catch(() => "");
     if (text) errMsg = text;
   }
@@ -29,9 +49,11 @@ async function handleJson(res, defaultError) {
   throw new Error(errMsg);
 }
 
-// GET /projects
+// --------------------------------------------------
+// GET /projects/
+// --------------------------------------------------
 export async function fetchProjects() {
-  const res = await fetch(`${API_URL}/projects`, {
+  const res = await fetch(`${API_URL}/projects/`, {
     headers: {
       ...getAuthHeader(),
     },
@@ -40,7 +62,9 @@ export async function fetchProjects() {
   return handleJson(res, "Failed to load projects");
 }
 
+// --------------------------------------------------
 // GET /projects/{id}
+// --------------------------------------------------
 export async function fetchProjectById(id) {
   const res = await fetch(`${API_URL}/projects/${id}`, {
     headers: {
@@ -51,9 +75,11 @@ export async function fetchProjectById(id) {
   return handleJson(res, "Project not found");
 }
 
-// POST /projects
+// --------------------------------------------------
+// POST /projects/
+// --------------------------------------------------
 export async function createProject(payload) {
-  const res = await fetch(`${API_URL}/projects`, {
+  const res = await fetch(`${API_URL}/projects/`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -65,7 +91,9 @@ export async function createProject(payload) {
   return handleJson(res, "Failed to create project");
 }
 
+// --------------------------------------------------
 // PATCH /projects/{id}
+// --------------------------------------------------
 export async function updateProject(id, payload) {
   const res = await fetch(`${API_URL}/projects/${id}`, {
     method: "PATCH",
@@ -79,7 +107,10 @@ export async function updateProject(id, payload) {
   return handleJson(res, "Failed to update project");
 }
 
-// PUT /projects/{id} (NU ai endpoint acum, îl folosești doar dacă îl adaugi în backend)
+// --------------------------------------------------
+// PUT /projects/{id}
+// (folosește-l doar dacă adaugi endpoint PUT în backend)
+// --------------------------------------------------
 export async function replaceProject(id, payload) {
   const res = await fetch(`${API_URL}/projects/${id}`, {
     method: "PUT",
@@ -93,9 +124,9 @@ export async function replaceProject(id, payload) {
   return handleJson(res, "Failed to replace project");
 }
 
+// --------------------------------------------------
 // DELETE /projects/{id}
-// ATENȚIE: backend-ul tău NU are endpoint DELETE încă.
-// Dacă nu îl adăugați, funcția asta va da 405.
+// --------------------------------------------------
 export async function deleteProject(id) {
   const res = await fetch(`${API_URL}/projects/${id}`, {
     method: "DELETE",
@@ -104,6 +135,7 @@ export async function deleteProject(id) {
     },
   });
 
+  // dacă e 204, handleJson întoarce null dar nu aruncă eroare
   await handleJson(res, "Failed to delete project");
   return true;
 }

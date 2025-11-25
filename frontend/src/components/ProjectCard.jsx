@@ -2,13 +2,12 @@
 import { useNavigate } from "react-router-dom";
 import "./ProjectCard.css";
 
-export default function ProjectCard({ project }) {
+export default function ProjectCard({ project, onDelete }) {
   const navigate = useNavigate();
 
-  const progress = project.progress ?? 0; // dacă pe viitor adaugi câmp
-  const lastUpdated = project.created_at
-    ? new Date(project.created_at).toLocaleDateString()
-    : "-";
+  const members = project.members_count ?? 0;
+  const techStack = project.tech_stack || "n/a";
+  const lastUpdated = project.updated_at || project.created_at;
 
   return (
     <div className="project-card">
@@ -19,30 +18,47 @@ export default function ProjectCard({ project }) {
       </p>
 
       <div className="project-card__meta">
-        <div>👥 {project.members ?? 0} Members</div>
-        <div>⚙️ Tech stack: {project.techStack?.join(", ") || "n/a"}</div>
+        <div className="project-card__meta-row">
+          <span className="project-card__meta-icon">👥</span>
+          <span>{members} Members</span>
+        </div>
+        <div className="project-card__meta-row">
+          <span className="project-card__meta-icon">⚙</span>
+          <span>Tech stack: {techStack}</span>
+        </div>
       </div>
 
       <div className="project-card__progress">
-        <div
-          className="project-card__progress-bar"
-          style={{ width: `${progress}%` }}
-        />
+        <div className="project-card__progress-bar" style={{ width: "0%" }} />
       </div>
+
       <div className="project-card__progress-label">
-        {progress}% of planned work completed
+        0% of planned work completed
       </div>
 
       <div className="project-card__footer">
         <span className="project-card__updated">
-          Last updated: {lastUpdated}
+          Last updated:{" "}
+          {lastUpdated
+            ? new Date(lastUpdated).toLocaleDateString()
+            : "-"}
         </span>
-        <button
-          className="project-card__button"
-          onClick={() => navigate(`/projects/${project.id}`)}
-        >
-          View Project
-        </button>
+
+        <div className="project-card__buttons">
+          <button
+            className="project-card__button"
+            onClick={() => navigate(`/projects/${project.id}`)}
+          >
+            View Project
+          </button>
+
+          <button
+            className="project-card__button project-card__button--delete"
+            onClick={() => onDelete && onDelete(project.id)}
+          >
+            Delete
+          </button>
+        </div>
       </div>
     </div>
   );

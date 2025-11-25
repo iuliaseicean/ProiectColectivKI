@@ -1,81 +1,90 @@
 /* frontend/src/components/ProjectCard.css */
 
 .project-card {
+  width: 320px;
   background: #fffaf4;
-  border-radius: 16px;
-  padding: 20px 22px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  border-radius: 22px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.08);
+  padding: 20px 22px 18px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  min-width: 280px;
 }
 
+/* TITLU – culoare ÎNCHISĂ, să se vadă pe fond deschis */
 .project-card__title {
-  margin: 0;
-  font-size: 1.1rem;
+  margin: 0 0 4px;
+  font-size: 1.2rem;
   font-weight: 600;
-  color: #333;
+  color: #222 !important;   /* forțează textul închis */
 }
 
 .project-card__description {
-  margin: 0;
+  margin: 0 0 8px;
   font-size: 0.9rem;
   color: #555;
 }
 
 .project-card__meta {
+  font-size: 0.85rem;
+  color: #444;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 0.85rem;
-  color: #666;
+  gap: 2px;
 }
 
 .project-card__progress {
-  margin-top: 8px;
-  height: 8px;
+  height: 6px;
+  background: #f2e3d2;
   border-radius: 999px;
-  background: #f1e4d5;
   overflow: hidden;
+  margin-top: 10px;
 }
 
 .project-card__progress-bar {
   height: 100%;
+  background: #f0c27b;
   border-radius: 999px;
-  background: linear-gradient(90deg, #30a7d7, #c2740c);
 }
 
 .project-card__progress-label {
-  margin-top: 4px;
   font-size: 0.8rem;
   color: #777;
-}
-
-.project-card__footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.8rem;
   margin-top: 6px;
 }
 
-.project-card__updated {
+.project-card__footer {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.8rem;
   color: #999;
 }
 
-.project-card__button {
-  padding: 6px 12px;
-  border-radius: 999px;
-  border: none;
-  background: #333;
-  color: #fff;
-  font-size: 0.8rem;
-  text-decoration: none;
-  cursor: pointer;
-  transition: background 0.2s;
+.project-card__updated {
+  white-space: nowrap;
 }
 
-.project-card__button:hover {
+/* Butoane */
+.project-card__button {
+  border: none;
   background: #111;
+  color: #fff;
+  padding: 8px 18px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+/* Buton Delete în stil cu View Project, dar roșu */
+.project-card__button--delete {
+  border: none;
+  background: #d64545;
+  color: #fff;
+  padding: 8px 18px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 0.85rem;
 }
