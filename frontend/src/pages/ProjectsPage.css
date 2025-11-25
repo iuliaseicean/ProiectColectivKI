@@ -1,29 +1,41 @@
 /* frontend/src/pages/ProjectsPage.css */
 
+/* Layout general */
 .projects-layout {
   min-height: 100vh;
-  background: linear-gradient(#f3c05b, #fbeedc);
   display: flex;
   flex-direction: column;
+  align-items: stretch;
+  background: radial-gradient(circle at top, #ffe8b3 0, #f7d08a 30%, #fbead6 70%, #fdf7f0 100%);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #1f2933;
 }
 
+/* Bara de sus */
 .projects-topbar {
-  height: 56px;
-  background: #f6f0e8;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  height: 60px;
+  background: rgba(255, 252, 248, 0.95);
+  backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 32px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  padding: 0 56px;
+  box-shadow: 0 1px 6px rgba(15, 23, 42, 0.12);
 }
 
 .projects-topbar__brand {
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  font-size: 1.1rem;
+  color: #1f2933;
 }
 
 .projects-topbar__right {
   display: flex;
-  gap: 16px;
+  gap: 18px;
 }
 
 .projects-topbar__icon-btn {
@@ -31,140 +43,248 @@
   background: transparent;
   cursor: pointer;
   font-size: 0.9rem;
-  color: #555;
+  color: #4b5563;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: color 0.2s ease, transform 0.1s ease;
 }
 
+.projects-topbar__icon-btn:hover {
+  color: #111827;
+  transform: translateY(-1px);
+}
+
+/* Conținut principal */
 .projects-main {
-  max-width: 1100px;
-  margin: 40px auto 60px;
+  flex: 1;
   width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 40px 24px 60px;
 }
 
+/* Headerul paginii */
 .projects-header {
   text-align: center;
   margin-bottom: 32px;
 }
 
 .projects-header h1 {
+  font-size: 2.8rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
   margin-bottom: 8px;
+  color: #1f2933;
 }
 
 .projects-header p {
-  margin: 0 0 20px;
-  color: #444;
+  margin: 0 0 24px;
+  color: #4b5563;
+  max-width: 640px;
+  margin-left: auto;
+  margin-right: auto;
+  line-height: 1.5;
 }
 
+/* Buton New Project */
 .projects-new-btn {
-  padding: 10px 22px;
+  padding: 11px 26px;
   border-radius: 999px;
   border: none;
-  background: #333;
-  color: #fff;
+  background: linear-gradient(135deg, #111827, #000000);
+  color: #f9fafb;
   cursor: pointer;
+  font-weight: 600;
+  font-size: 0.98rem;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.35);
+  transform: translateY(0);
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.2s ease;
 }
 
+.projects-new-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.45);
+  background: linear-gradient(135deg, #020617, #111827);
+}
+
+.projects-new-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.28);
+}
+
+/* Grid proiecte */
 .projects-grid {
-  display: flex;
-  gap: 24px;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 340px));
   justify-content: center;
+  gap: 28px;
+  margin-top: 12px;
 }
 
+/* Mesaje empty / error */
 .projects-empty {
+  grid-column: 1 / -1;
   text-align: center;
-  color: #555;
-  width: 100%;
+  color: #4b5563;
   margin-top: 40px;
+  font-size: 0.98rem;
+}
+
+.projects-empty b {
+  font-weight: 700;
 }
 
 .projects-empty.error {
-  color: #b03a2e;
+  color: #b91c1c;
 }
 
-/* ---------- CREATE PROJECT MODAL ---------- */
+/* --------- Modal creare proiect --------- */
+
 .projects-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(15, 23, 42, 0.42);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 9000;
+  z-index: 50;
 }
 
 .projects-modal {
-  background: #fff;
-  width: min(680px, 92vw);
-  padding: 32px;
-  border-radius: 18px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
-  color: #111; /* force text visible */
+  background: #fffdf9;
+  border-radius: 22px;
+  padding: 24px 26px 22px;
+  max-width: 520px;
+  width: 100%;
+  box-shadow:
+    0 24px 60px rgba(15, 23, 42, 0.45),
+    0 0 0 1px rgba(148, 163, 184, 0.14);
 }
 
 .projects-modal h2 {
-  margin: 0 0 18px;
-  font-size: 1.8rem;
+  margin: 0 0 16px;
+  font-size: 1.4rem;
   font-weight: 700;
-  color: #111;
+  color: #111827;
 }
 
 .projects-modal-form {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
 
 .projects-modal-form label {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-weight: 600;
-  color: #111;
+  font-size: 0.92rem;
+  color: #374151;
 }
 
-/* inputs */
 .projects-modal-form input,
 .projects-modal-form textarea {
-  padding: 10px 14px;
-  border-radius: 10px;
-  border: 1px solid #ccc;
-  font-size: 1rem;
-  color: #111 !important;      /* <-- fix text alb */
-  background: #fff !important; /* <-- fix fundal */
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  padding: 9px 11px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  color: #111827;
+  background: #ffffff;
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
 }
 
 .projects-modal-form textarea {
-  min-height: 140px;
+  min-height: 90px;
   resize: vertical;
 }
 
-.projects-modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 6px;
-}
-
-.projects-modal-actions button {
-  border: none;
-  border-radius: 999px;
-  padding: 10px 20px;
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.projects-modal-actions button[type="button"] {
-  background: #ddd;
-  color: #111;
-}
-
-.projects-modal-actions button[type="submit"] {
-  background: #222;
-  color: #fff;
+.projects-modal-form input:focus,
+.projects-modal-form textarea:focus {
+  border-color: #f97316;
+  box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.6);
+  background: #fffdfa;
 }
 
 .projects-modal-error {
-  color: #c0392b;
-  font-size: 0.95rem;
-  font-weight: 600;
+  margin-top: 4px;
+  color: #b91c1c;
+  font-size: 0.88rem;
+}
+
+/* Butoane în modal */
+.projects-modal-actions {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.projects-modal-actions button {
+  min-width: 90px;
+  border-radius: 999px;
+  border: none;
+  padding: 8px 16px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.projects-modal-actions button[type="button"] {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.projects-modal-actions button[type="button"]:hover {
+  background: #d1d5db;
+}
+
+.projects-modal-actions button[type="submit"] {
+  background: #111827;
+  color: #f9fafb;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.4);
+}
+
+.projects-modal-actions button[type="submit"]:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.5);
+}
+
+.projects-modal-actions button:disabled {
+  opacity: 0.65;
+  cursor: default;
+  transform: none;
+  box-shadow: none;
+}
+
+/* Responsivitate */
+@media (max-width: 720px) {
+  .projects-topbar {
+    padding: 0 18px;
+  }
+
+  .projects-main {
+    padding: 28px 16px 40px;
+  }
+
+  .projects-header h1 {
+    font-size: 2.2rem;
+  }
+
+  .projects-modal {
+    margin: 0 12px;
+  }
 }
