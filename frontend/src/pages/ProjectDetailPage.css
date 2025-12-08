@@ -256,3 +256,248 @@
   background: #222;
   color: #fff;
 }
+
+/* ============================= */
+/* TASKS PANEL: toolbar + list   */
+/* ============================= */
+
+.project-detail-tasks-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.project-detail-tasks-sort {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.project-detail-tasks-sort select {
+  border-radius: 999px;
+  border: 1px solid #ddd;
+  padding: 4px 10px;
+  background: #fff;
+  font-size: 0.85rem;
+}
+
+.project-detail-tasks-sort button {
+  border-radius: 999px;
+  border: 1px solid #ddd;
+  background: #fff;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+/* LISTĂ DE TASK-URI */
+
+.project-detail-task-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.project-detail-task-item {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.05);
+}
+
+.project-detail-task-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.project-detail-task-main strong {
+  color: #222;
+}
+
+.project-detail-task-desc {
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.project-detail-task-actions {
+  margin-top: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.project-detail-task-actions select {
+  border-radius: 999px;
+  border: 1px solid #ddd;
+  padding: 4px 10px;
+  background: #fff;
+  font-size: 0.85rem;
+}
+
+.project-detail-task-actions button {
+  border-radius: 999px;
+  border: none;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  background: #f0e0cd;
+  color: #333;
+}
+
+.project-detail-task-actions button:last-child {
+  background: #e57373;
+  color: #fff;
+}
+
+/* BADGE-URI DE STATUS */
+
+.project-detail-task-status {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* culori diferite pe status */
+
+.badge-todo {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.badge-in_progress {
+  background: #bbdefb;
+  color: #0d47a1;
+}
+
+.badge-done {
+  background: #c8e6c9;
+  color: #1b5e20;
+}
+
+/* ============================= */
+/* MODALE (create / edit / delete) */
+/* ============================= */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: #fffaf4;
+  border-radius: 18px;
+  padding: 18px 20px;
+  max-width: 420px;
+  width: 100%;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.25);
+}
+
+.modal h3 {
+  margin-top: 0;
+  margin-bottom: 12px;
+  color: #222;
+}
+
+.modal-form label {
+  display: block;
+  font-size: 0.9rem;
+  color: #333;
+  margin-bottom: 10px;
+}
+
+.modal-form input,
+.modal-form textarea {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+  padding: 8px 10px;
+  margin-top: 4px;
+  font-size: 0.9rem;
+  color: #222;
+  background: #fff;
+}
+
+.modal-form textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.modal-actions button {
+  border-radius: 999px;
+  border: none;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.modal-actions button:first-child {
+  background: #ddd;
+  color: #333;
+}
+
+.modal-actions button:last-child {
+  background: #222;
+  color: #fff;
+}
+
+/* ============================= */
+/* FORCE SORT SELECT TEXT COLOR  */
+/* ============================= */
+
+.project-detail-tasks-sort select,
+.project-detail-tasks-sort select:focus,
+.project-detail-tasks-sort select:active {
+  color: #222222 !important;
+  background-color: #ffffff !important;
+  font-weight: 500;
+  text-shadow: none !important;
+}
+
+/* FORȚĂM CULOAREA ȘI LA OPȚIUNI */
+
+.project-detail-tasks-sort select option {
+  color: #222222 !important;
+  background-color: #ffffff !important;
+}
+
+/* EDGE / CHROME / WINDOWS SPECIAL FIX */
+
+.project-detail-tasks-sort select::-ms-value {
+  color: #222222 !important;
+}
+
+/* DEZACTIVĂM TEMA OS */
+
+.project-detail-tasks-sort select {
+  forced-color-adjust: none;
+}
+
+/* SIGURANȚĂ EXTRA (când e selectat) */
+
+.project-detail-tasks-sort select:not(:focus) {
+  color: #222222 !important;
+}

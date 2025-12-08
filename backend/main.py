@@ -39,7 +39,7 @@ app.add_middleware(
 from backend.database import Base, engine  # noqa: E402
 from backend.auth.auth_router import router as auth_router  # noqa: E402
 from backend.project.project_router import router as project_router  # noqa: E402
-from backend.project.task_router import router as task_router  # noqa: E402
+from backend.task.task_router import router as task_router  # noqa: E402
 
 print("🔧 Checking database models...")
 Base.metadata.create_all(bind=engine)
