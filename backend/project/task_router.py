@@ -1,45 +1,63 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+# backend/project/task_router.py
 
-from backend.database import Base, engine
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy.orm import Session
+
+from backend.database import Base
 from backend.auth.auth_router import get_db
 from backend.schemas.task_schema import TaskCreate, TaskUpdate, TaskRead
 
 
+# ==========================
+#  SQLAlchemy MODEL
+# ==========================
 class Task(Base):
     __tablename__ = "tasks"
 
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, nullable=False)
-    description = Column(String)
-    status = Column(String, default="todo")      # todo / in_progress / done
-    ai_story = Column(String)
+    description = Column(String)                     # poate fi None
+    status = Column(String, default="todo")          # "todo" / "in_progress" / "done"
+    ai_story = Column(String)                        # text generat de AI (opțional)
 
-    project_id = Column(Integer, ForeignKey("projects.id"))
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
-Base.metadata.create_all(bind=engine)
+# !!! NU mai facem Base.metadata.create_all aici !!!
+# Tabelele se creează din main.py, o singură dată
 
-router = APIRouter(prefix="/tasks")
+
+# ==========================
+#  ROUTER
+# ==========================
+router = APIRouter(
+    prefix="/tasks",
+    tags=["tasks"],
+)
+
+
 @router.post("/", response_model=TaskRead)
 def create_task(data: TaskCreate, db: Session = Depends(get_db)):
     task = Task(
         title=data.title,
         description=data.description,
-        project_id=data.project_id
+        project_id=data.project_id,
     )
     db.add(task)
     db.commit()
     db.refresh(task)
     return task
 
+
 @router.get("/", response_model=list[TaskRead])
 def get_all_tasks(db: Session = Depends(get_db)):
     return db.query(Task).all()
+
 
 @router.get("/{task_id}", response_model=TaskRead)
 def get_task(task_id: int, db: Session = Depends(get_db)):
@@ -47,6 +65,7 @@ def get_task(task_id: int, db: Session = Depends(get_db)):
     if not task:
         raise HTTPException(404, "Task not found")
     return task
+
 
 @router.patch("/{task_id}", response_model=TaskRead)
 def update_task(task_id: int, data: TaskUpdate, db: Session = Depends(get_db)):
@@ -67,6 +86,7 @@ def update_task(task_id: int, data: TaskUpdate, db: Session = Depends(get_db)):
     db.refresh(task)
     return task
 
+
 @router.delete("/{task_id}", status_code=204)
 def delete_task(task_id: int, db: Session = Depends(get_db)):
     task = db.query(Task).get(task_id)
@@ -77,9 +97,11 @@ def delete_task(task_id: int, db: Session = Depends(get_db)):
     db.commit()
     return
 
+
 @router.get("/project/{project_id}", response_model=list[TaskRead])
 def get_tasks_by_project(project_id: int, db: Session = Depends(get_db)):
     return db.query(Task).filter(Task.project_id == project_id).all()
+
 
 @router.patch("/{task_id}/status", response_model=TaskRead)
 def update_status(task_id: int, status: str, db: Session = Depends(get_db)):
@@ -92,14 +114,18 @@ def update_status(task_id: int, status: str, db: Session = Depends(get_db)):
     db.refresh(task)
     return task
 
+
 @router.post("/{task_id}/generate-story", response_model=TaskRead)
 def generate_ai_story(task_id: int, db: Session = Depends(get_db)):
     task = db.query(Task).get(task_id)
     if not task:
         raise HTTPException(404, "Task not found")
 
-    # pana fac ai
-    ai_text = f"AI-generated story for task '{task.title}':\n\nBased on previous tasks..."
+    # placeholder până avem AI real
+    ai_text = (
+        f"AI-generated story for task '{task.title}':\n\n"
+        f"Based on previous tasks..."
+    )
 
     task.ai_story = ai_text
     db.commit()
