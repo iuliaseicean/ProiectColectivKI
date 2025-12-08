@@ -5,8 +5,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
 
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"), override=True, encoding="utf-8-sig")
-
+load_dotenv(
+    dotenv_path=os.path.join(os.path.dirname(__file__), ".env"),
+    override=True,
+    encoding="utf-8-sig",
+)
 
 app = FastAPI(title="Proiect Colectiv AI Backend")
 
@@ -32,24 +35,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------------- DATABASE INIT ----------------
-from backend.database import Base, engine
+# ---------------- DATABASE + ROUTERS ----------------
+from backend.database import Base, engine  # noqa: E402
+from backend.auth.auth_router import router as auth_router  # noqa: E402
+from backend.project.project_router import router as project_router  # noqa: E402
+from backend.project.task_router import router as task_router  # noqa: E402
 
 print("🔧 Checking database models...")
 Base.metadata.create_all(bind=engine)
 print("✅ Database ready.")
 
-# ---------------- ROUTERS ----------------
-from backend.auth.auth_router import router as auth_router
-from backend.project.project_router import router as project_router
-from backend.project.task_router import router as task_router
-
-app.include_router(task_router, prefix="/tasks", tags=["Tasks"])
+# includem router-ele
 app.include_router(auth_router, prefix="/auth")
 app.include_router(project_router, prefix="/projects")
+# prefix-ul /tasks este deja în task_router
+app.include_router(task_router)
 
 # ---------------- ROOT ----------------
 @app.get("/")
 def read_root():
     return {"message": "Backend running successfully 🚀"}
-
