@@ -1,38 +1,19 @@
 // frontend/src/pages/ProjectDetailPage.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { fetchProjectById, updateProject } from "../api/projectService";
+import {
+  getTasksByProject,
+  createTask,
+  updateTask,
+  deleteTask,
+  updateTaskStatus,
+} from "../api/taskService";
 import "./ProjectDetailPage.css";
 
-// ----------------------
-// Helpers pentru task-uri
-// ----------------------
-const TASKS_KEY_PREFIX = "pcai_tasks_";
-
-function loadTasksFromStorage(projectId) {
-  try {
-    const raw = localStorage.getItem(`${TASKS_KEY_PREFIX}${projectId}`);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed;
-  } catch (e) {
-    console.error("Failed to load tasks from storage", e);
-    return [];
-  }
-}
-
-function saveTasksToStorage(projectId, tasks) {
-  try {
-    localStorage.setItem(
-      `${TASKS_KEY_PREFIX}${projectId}`,
-      JSON.stringify(tasks)
-    );
-  } catch (e) {
-    console.error("Failed to save tasks to storage", e);
-  }
-}
-
+// ======================
+//  COMPONENTA PRINCIPALĂ
+// ======================
 export default function ProjectDetailPage() {
   const { projectId } = useParams();
   const navigate = useNavigate();
@@ -52,13 +33,23 @@ export default function ProjectDetailPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
 
-  // tasks
+  // ======================
+  //  STATE PENTRU TASKS
+  // ======================
   const [tasks, setTasks] = useState([]);
-  const [showTaskForm, setShowTaskForm] = useState(false);
-  const [taskForm, setTaskForm] = useState({ title: "", description: "" });
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [tasksError, setTasksError] = useState("");
+
+  const [sortBy, setSortBy] = useState("created_at"); // created_at | title | status
+
+  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState(null);
+
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [taskToDelete, setTaskToDelete] = useState(null);
 
   // --------------------------------------------------
-  //  Load project + tasks
+  //  Load project
   // --------------------------------------------------
   useEffect(() => {
     let cancelled = false;
@@ -79,10 +70,6 @@ export default function ProjectDetailPage() {
           infrastructure: data.infrastructure || "",
           members_count: data.members_count ?? 0,
         });
-
-        // încarcă task-urile din localStorage
-        const storedTasks = loadTasksFromStorage(projectId);
-        setTasks(storedTasks);
       } catch (err) {
         if (!cancelled) {
           setLoadError(err.message || "Failed to load project");
@@ -95,6 +82,29 @@ export default function ProjectDetailPage() {
     return () => {
       cancelled = true;
     };
+  }, [projectId]);
+
+  // --------------------------------------------------
+  //  Load tasks pentru proiect (din backend)
+  // --------------------------------------------------
+  async function loadTasks() {
+    if (!projectId) return;
+    try {
+      setTasksLoading(true);
+      setTasksError("");
+      const data = await getTasksByProject(projectId);
+      setTasks(data);
+    } catch (err) {
+      console.error(err);
+      setTasksError(err.message || "Failed to load tasks");
+    } finally {
+      setTasksLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadTasks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
   // --------------------------------------------------
@@ -145,34 +155,75 @@ export default function ProjectDetailPage() {
   }
 
   // --------------------------------------------------
-  //  Handlers tasks
+  //  Handlers pentru Task & Story Management
   // --------------------------------------------------
-  function openNewTaskForm() {
-    setTaskForm({ title: "", description: "" });
-    setShowTaskForm(true);
+  const sortedTasks = useMemo(() => {
+    const copy = [...tasks];
+    copy.sort((a, b) => {
+      let aVal = a[sortBy];
+      let bVal = b[sortBy];
+      if (typeof aVal === "string") aVal = aVal.toLowerCase();
+      if (typeof bVal === "string") bVal = bVal.toLowerCase();
+      if (aVal < bVal) return -1; // sortare mereu ascendentă
+      if (aVal > bVal) return 1;
+      return 0;
+    });
+    return copy;
+  }, [tasks, sortBy]);
+
+  function openNewTaskModal() {
+    setEditingTask(null);
+    setIsTaskModalOpen(true);
   }
 
-  function cancelNewTask() {
-    setShowTaskForm(false);
+  function openEditTask(task) {
+    setEditingTask(task);
+    setIsTaskModalOpen(true);
   }
 
-  function handleTaskSubmit(e) {
-    e.preventDefault();
-    const title = taskForm.title.trim();
-    const description = taskForm.description.trim();
+  async function handleSaveTask({ title, description }) {
+    try {
+      if (editingTask) {
+        await updateTask(editingTask.id, { title, description });
+      } else {
+        await createTask({ title, description, projectId });
+      }
+      setIsTaskModalOpen(false);
+      setEditingTask(null);
+      await loadTasks();
+    } catch (err) {
+      console.error(err);
+      setTasksError(err.message || "Failed to save task");
+    }
+  }
 
-    if (!title) return;
+  async function handleChangeStatus(task, status) {
+    try {
+      await updateTaskStatus(task.id, status);
+      await loadTasks();
+    } catch (err) {
+      console.error(err);
+      setTasksError(err.message || "Failed to update task status");
+    }
+  }
 
-    const newTask = {
-      id: Date.now(),
-      title,
-      description,
-    };
+  function askDeleteTask(task) {
+    setTaskToDelete(task);
+    setIsDeleteOpen(true);
+  }
 
-    const nextTasks = [...tasks, newTask];
-    setTasks(nextTasks);
-    saveTasksToStorage(projectId, nextTasks);
-    setShowTaskForm(false);
+  async function confirmDeleteTask() {
+    try {
+      if (taskToDelete) {
+        await deleteTask(taskToDelete.id);
+      }
+      setTaskToDelete(null);
+      setIsDeleteOpen(false);
+      await loadTasks();
+    } catch (err) {
+      console.error(err);
+      setTasksError(err.message || "Failed to delete task");
+    }
   }
 
   // --------------------------------------------------
@@ -349,61 +400,77 @@ export default function ProjectDetailPage() {
               be sent to the AI model for better descriptions and estimations.
             </p>
 
-            <button
-              className="project-detail-primary-btn"
-              onClick={openNewTaskForm}
-            >
-              + New Task
-            </button>
-
-            {showTaskForm && (
-              <form
-                className="project-detail-task-form"
-                onSubmit={handleTaskSubmit}
+            {/* Toolbar: New task + Sorting */}
+            <div className="project-detail-tasks-toolbar">
+              <button
+                className="project-detail-primary-btn"
+                onClick={openNewTaskModal}
               >
-                <input
-                  type="text"
-                  placeholder="Task title"
-                  value={taskForm.title}
-                  onChange={(e) =>
-                    setTaskForm((f) => ({ ...f, title: e.target.value }))
-                  }
-                  required
-                />
-                <textarea
-                  placeholder="Short description..."
-                  value={taskForm.description}
-                  onChange={(e) =>
-                    setTaskForm((f) => ({
-                      ...f,
-                      description: e.target.value,
-                    }))
-                  }
-                />
-                <div className="project-detail-task-form-actions">
-                  <button type="button" onClick={cancelNewTask}>
-                    Cancel
-                  </button>
-                  <button type="submit">Add task</button>
-                </div>
-              </form>
+                + New Task
+              </button>
+
+              <div className="project-detail-tasks-sort">
+                <span>Sort by&nbsp;</span>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                >
+                  <option value="created_at">Created date</option>
+                  <option value="title">Title</option>
+                  <option value="status">Status</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Task states: loading / error / empty / list */}
+            {tasksLoading && <p>Loading tasks…</p>}
+            {tasksError && (
+              <p className="project-detail-save-error">{tasksError}</p>
             )}
 
-            {tasks.length === 0 ? (
+            {!tasksLoading && !tasksError && sortedTasks.length === 0 && (
               <div className="project-detail-placeholder">
                 <p>No tasks yet. Create the first one.</p>
               </div>
-            ) : (
+            )}
+
+            {!tasksLoading && sortedTasks.length > 0 && (
               <ul className="project-detail-task-list">
-                {tasks.map((t) => (
+                {sortedTasks.map((t) => (
                   <li key={t.id} className="project-detail-task-item">
-                    <strong>{t.title}</strong>
-                    {t.description && (
-                      <span className="project-detail-task-desc">
-                        {" "}
-                        — {t.description}
+                    <div className="project-detail-task-main">
+                      <div>
+                        <strong>{t.title}</strong>
+                        {t.description && (
+                          <span className="project-detail-task-desc">
+                            {" "}
+                            — {t.description}
+                          </span>
+                        )}
+                      </div>
+
+                      <span
+                        className={`project-detail-task-status badge-${t.status}`}
+                      >
+                        {t.status}
                       </span>
-                    )}
+                    </div>
+
+                    <div className="project-detail-task-actions">
+                      <select
+                        value={t.status || "todo"}
+                        onChange={(e) =>
+                          handleChangeStatus(t, e.target.value)
+                        }
+                      >
+                        <option value="todo">To Do</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="done">Done</option>
+                      </select>
+
+                      <button onClick={() => openEditTask(t)}>Edit</button>
+                      <button onClick={() => askDeleteTask(t)}>Delete</button>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -434,6 +501,107 @@ export default function ProjectDetailPage() {
           </div>
         </section>
       </main>
+
+      {/* Modale pentru Task & Story Management */}
+      <TaskModal
+        open={isTaskModalOpen}
+        onClose={() => {
+          setIsTaskModalOpen(false);
+          setEditingTask(null);
+        }}
+        onSave={handleSaveTask}
+        initialTask={editingTask}
+      />
+
+      <ConfirmDeleteModal
+        open={isDeleteOpen}
+        onCancel={() => {
+          setIsDeleteOpen(false);
+          setTaskToDelete(null);
+        }}
+        onConfirm={confirmDeleteTask}
+      />
+    </div>
+  );
+}
+
+// ======================
+//  COMPONENTE MODALE
+// ======================
+
+// Modal pentru creare / editare task
+function TaskModal({ open, onClose, onSave, initialTask }) {
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+
+  useEffect(() => {
+    if (initialTask) {
+      setTitle(initialTask.title || "");
+      setDescription(initialTask.description || "");
+    } else {
+      setTitle("");
+      setDescription("");
+    }
+  }, [initialTask, open]);
+
+  if (!open) return null;
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle) return;
+    onSave({ title: trimmedTitle, description: description.trim() });
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <div className="modal">
+        <h3>{initialTask ? "Edit Task" : "New Task"}</h3>
+        <form className="modal-form" onSubmit={handleSubmit}>
+          <label>
+            Title
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              required
+            />
+          </label>
+
+          <label>
+            Description
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </label>
+
+          <div className="modal-actions">
+            <button type="button" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="submit">
+              Save
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// Modal pentru confirmare ștergere
+function ConfirmDeleteModal({ open, onCancel, onConfirm }) {
+  if (!open) return null;
+
+  return (
+    <div className="modal-backdrop">
+      <div className="modal">
+        <p>Are you sure you want to delete this task?</p>
+        <div className="modal-actions">
+          <button onClick={onCancel}>Cancel</button>
+          <button onClick={onConfirm}>Delete</button>
+        </div>
+      </div>
     </div>
   );
 }
