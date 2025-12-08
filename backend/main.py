@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
 
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"), override=True, encoding="utf-8-sig")
 
 
 app = FastAPI(title="Proiect Colectiv AI Backend")
@@ -42,7 +42,9 @@ print("✅ Database ready.")
 # ---------------- ROUTERS ----------------
 from backend.auth.auth_router import router as auth_router
 from backend.project.project_router import router as project_router
+from backend.project.task_router import router as task_router
 
+app.include_router(task_router, prefix="/tasks", tags=["Tasks"])
 app.include_router(auth_router, prefix="/auth")
 app.include_router(project_router, prefix="/projects")
 
