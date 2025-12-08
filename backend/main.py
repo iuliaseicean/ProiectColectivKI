@@ -5,8 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
 
+# ---------------- ENV ----------------
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
-
 
 app = FastAPI(title="Proiect Colectiv AI Backend")
 
@@ -33,21 +33,23 @@ app.add_middleware(
 )
 
 # ---------------- DATABASE INIT ----------------
-from backend.database import Base, engine
+from backend.database import Base, engine  # noqa: E402
+from backend.task_model import Task  # noqa: F401
+
 
 print("🔧 Checking database models...")
 Base.metadata.create_all(bind=engine)
 print("✅ Database ready.")
 
 # ---------------- ROUTERS ----------------
-from backend.auth.auth_router import router as auth_router
-from backend.project.project_router import router as project_router
+from backend.auth.auth_router import router as auth_router  # noqa: E402
+from backend.project.project_router import router as project_router  # noqa: E402
 
 app.include_router(auth_router, prefix="/auth")
-app.include_router(project_router, prefix="/projects")
+# ATENȚIE: aici NU mai punem prefix, îl are routerul deja
+app.include_router(project_router)
 
 # ---------------- ROOT ----------------
 @app.get("/")
 def read_root():
     return {"message": "Backend running successfully 🚀"}
-
