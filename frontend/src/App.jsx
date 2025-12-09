@@ -12,6 +12,7 @@ import RegisterPage from "./pages/RegisterPage";
 
 import ProjectsPage from "./pages/ProjectsPage";
 import ProjectDetailPage from "./pages/ProjectDetailPage";
+import ProfilePage from "./pages/ProfilePage"; // ✅ nou
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
@@ -66,7 +67,7 @@ export default function App() {
     setMe(null);
   }
 
-  // helper pentru onLoginSuccess – acceptă fie string, fie {access_token}
+  // acceptă fie string, fie { access_token }
   function handleLoginSuccess(tok) {
     const accessToken = typeof tok === "string" ? tok : tok?.access_token;
     if (!accessToken) return;
@@ -99,7 +100,7 @@ export default function App() {
             }
           />
 
-          {/* MAIN: redirect / -> /projects când ești logat */}
+          {/* ROOT -> redirect */}
           <Route
             path="/"
             element={
@@ -111,7 +112,7 @@ export default function App() {
             }
           />
 
-          {/* PROJECTS LIST (Project Screen) */}
+          {/* PROJECTS LIST */}
           <Route
             path="/projects"
             element={
@@ -123,7 +124,7 @@ export default function App() {
             }
           />
 
-          {/* PROJECT DETAIL (Project Cards Screen) */}
+          {/* PROJECT DETAIL */}
           <Route
             path="/projects/:projectId"
             element={
@@ -135,7 +136,19 @@ export default function App() {
             }
           />
 
-          {/* fallback – orice altceva merge la /projects sau /login */}
+          {/* PROFILE PAGE ✅ */}
+          <Route
+            path="/profile"
+            element={
+              token ? (
+                <ProfilePage user={me} onLogout={handleLogout} />
+              ) : (
+                <Navigate to="/login" replace />
+              )
+            }
+          />
+
+          {/* FALLBACK */}
           <Route
             path="*"
             element={

@@ -1,5 +1,6 @@
 // frontend/src/pages/ProjectsPage.jsx
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   fetchProjects,
   createProject,
@@ -8,7 +9,9 @@ import {
 import ProjectCard from "../components/ProjectCard";
 import "./ProjectsPage.css";
 
-export default function ProjectsPage() {
+export default function ProjectsPage({ user /*, onLogout */ }) {
+  const navigate = useNavigate();
+
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -22,6 +25,10 @@ export default function ProjectsPage() {
   });
   const [saving, setSaving] = useState(false);
   const [createError, setCreateError] = useState("");
+
+  // Nume / email afișat lângă iconița de profil
+  const displayName =
+    user?.username || user?.name || user?.email || "Profile";
 
   async function loadProjects() {
     try {
@@ -104,10 +111,25 @@ export default function ProjectsPage() {
   return (
     <div className="projects-layout">
       <header className="projects-topbar">
-        <div className="projects-topbar__brand">Smart Project Management</div>
+        <div
+          className="projects-topbar__brand"
+          onClick={() => navigate("/projects")}
+          style={{ cursor: "pointer" }}
+        >
+          Smart Project Management
+        </div>
         <div className="projects-topbar__right">
-          <button className="projects-topbar__icon-btn">🔔 Notifications</button>
-          <button className="projects-topbar__icon-btn">👤 Profile</button>
+          <button className="projects-topbar__icon-btn">
+            🔔 Notifications
+          </button>
+
+          {/* Profil – merge în pagina /profile */}
+          <button
+            className="projects-topbar__icon-btn"
+            onClick={() => navigate("/profile")}
+          >
+            👤 {displayName}
+          </button>
         </div>
       </header>
 
