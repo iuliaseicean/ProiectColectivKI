@@ -246,7 +246,7 @@ export default function ProjectDetailPage() {
 
   return (
     <div className="project-detail-layout">
-      {/* Top bar */}
+      {/* Top bar – doar back button aici */}
       <header className="project-detail-topbar">
         <button
           className="project-detail-back"
@@ -254,12 +254,6 @@ export default function ProjectDetailPage() {
         >
           ← Back to projects
         </button>
-        <div className="project-detail-topbar__right">
-          <button className="project-detail-topbar__icon-btn">
-            🔔 Notifications
-          </button>
-          <button className="project-detail-topbar__icon-btn">👤 Profile</button>
-        </div>
       </header>
 
       <main className="project-detail-main">
