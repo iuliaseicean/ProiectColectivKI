@@ -1,4 +1,6 @@
 from datetime import datetime
+import os
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
@@ -7,6 +9,19 @@ from sqlalchemy.orm import Session
 from backend.database import Base
 from backend.auth.auth_router import get_db
 from backend.schemas.task_schema import TaskCreate, TaskUpdate, TaskRead
+
+# AI service (keeps logic out of router)
+from backend.task.ai_service import (
+    AIService,
+    AIServiceError,
+    AIServiceTimeoutError,
+    AIServiceInvalidResponseError,
+)
+
+# Import Project model for contextual info; this mirrors existing project model
+from backend.project.project_router import Project
+
+logger = logging.getLogger("backend.task")
 
 
 # ==========================
@@ -126,6 +141,56 @@ def generate_ai_story(task_id: int, db: Session = Depends(get_db)):
     )
 
     task.ai_story = ai_text
+    db.commit()
+    db.refresh(task)
+    return task
+
+
+@router.post("/{task_id}/ai-description", response_model=TaskRead)
+def generate_ai_description(task_id: int, db: Session = Depends(get_db)):
+    """Generate a detailed task description using the AI service.
+
+    Uses `AI_ENABLED` environment flag to enable/disable the feature.
+    """
+    # Feature flag
+    ai_enabled = os.getenv("AI_ENABLED", "false").lower() == "true"
+    if not ai_enabled:
+        raise HTTPException(status_code=503, detail="AI functionality is disabled")
+
+    task = db.query(Task).get(task_id)
+    if not task:
+        raise HTTPException(404, "Task not found")
+
+    # Load project context when available
+    project = db.query(Project).get(task.project_id)
+
+    ai_service = AIService()
+
+    payload = {
+        "title": task.title,
+        "description": task.description,
+        "project_name": project.name if project else None,
+        "project_description": project.description if project else None,
+        "tech_stack": getattr(project, "tech_stack", None) if project else None,
+    }
+
+    # Call AI service and handle domain-specific errors
+    try:
+        generated = ai_service.generate_description(payload)
+    except AIServiceTimeoutError:
+        logger.error("ai_timeout", extra={"task_id": task_id, "project_id": task.project_id, "error_type": "timeout"})
+        raise HTTPException(status_code=504, detail="AI service timed out, please try again later")
+    except AIServiceInvalidResponseError:
+        logger.error("ai_invalid_response", extra={"task_id": task_id, "project_id": task.project_id, "error_type": "invalid_response"})
+        raise HTTPException(status_code=502, detail="AI produced an invalid response")
+    except AIServiceError:
+        logger.exception("ai_service_error", extra={"task_id": task_id, "project_id": task.project_id, "error_type": "service_error"})
+        raise HTTPException(status_code=502, detail="AI service failure")
+
+    # Save generated description (do not log full text)
+    task.description = generated
+    # Optionally record that an AI-generated description exists
+    task.ai_story = (task.ai_story or "") + "\n\n[AI description generated]"
     db.commit()
     db.refresh(task)
     return task
