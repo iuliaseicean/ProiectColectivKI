@@ -501,3 +501,38 @@
 .project-detail-tasks-sort select:not(:focus) {
   color: #222222 !important;
 }
+
+
+.project-detail-task-meta {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.meta-chip {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/* colorare ușoară pt priority/complexity */
+.meta-low {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+}
+
+.meta-medium {
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.meta-high {
+  background: #fef2f2;
+  border-color: #fecaca;
+}

@@ -6,20 +6,50 @@ export default function TaskCard({ task, onEdit, onDelete, onChangeStatus }) {
     done: "Done",
   }[task.status] || task.status;
 
+  const priorityLabel = {
+    low: "Low",
+    medium: "Medium",
+    high: "High",
+  }[task.priority] || task.priority || "—";
+
+  const complexityLabel = {
+    low: "Low",
+    medium: "Medium",
+    high: "High",
+  }[task.complexity] || task.complexity || "—";
+
   return (
     <div className="task-card">
+      {/* HEADER */}
       <div className="task-card-header">
         <div>
           <strong>{task.title}</strong>
+
           {task.description && (
             <p className="task-card-description">{task.description}</p>
           )}
+
+          {/* META INFO */}
+          <div className="task-card-meta">
+            <span>🏷 Priority: {priorityLabel}</span>
+            <span>🧩 Complexity: {complexityLabel}</span>
+
+            {task.estimated_story_points != null && (
+              <span>📐 SP: {task.estimated_story_points}</span>
+            )}
+
+            {task.ai_confidence != null && (
+              <span>🤖 AI confidence: {(task.ai_confidence * 100).toFixed(0)}%</span>
+            )}
+          </div>
         </div>
+
         <span className={`task-status task-status-${task.status}`}>
           {statusLabel}
         </span>
       </div>
 
+      {/* FOOTER */}
       <div className="task-card-footer">
         <select
           className="task-status-select"

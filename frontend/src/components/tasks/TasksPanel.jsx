@@ -24,19 +24,32 @@ export default function TasksPanel({ projectId }) {
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [taskToDelete, setTaskToDelete] = useState(null);
 
-  async function loadTasks() {
-    try {
-      setLoading(true);
-      setError("");
-      const data = await getTasksByProject(projectId);
-      setTasks(data);
-    } catch (err) {
-      console.error(err);
-      setError("Could not load tasks.");
-    } finally {
-      setLoading(false);
-    }
+  // ✅ în TasksPanel.jsx, înlocuiește loadTasks() cu asta:
+async function loadTasks() {
+  try {
+    setLoading(true);
+    setError("");
+    const data = await getTasksByProject(projectId);
+
+    console.log("📦 getTasksByProject(projectId) =", projectId, data);
+
+    // apărare dacă backend trimite alt format (ex: {items: [...]})
+    const arr = Array.isArray(data) ? data : (data?.items ?? []);
+    setTasks(arr);
+  } catch (err) {
+    console.error("❌ loadTasks error:", err);
+    // dacă e axios, ai info în err.response
+    const msg =
+      err?.response?.data?.detail ||
+      err?.response?.data?.message ||
+      err?.message ||
+      "Could not load tasks.";
+    setError(msg);
+  } finally {
+    setLoading(false);
   }
+}
+
 
   useEffect(() => {
     if (projectId) loadTasks();
@@ -66,21 +79,46 @@ export default function TasksPanel({ projectId }) {
     setIsTaskModalOpen(true);
   };
 
-  const handleSaveTask = async ({ title, description, projectId }) => {
-    try {
-      if (editingTask) {
-        await updateTask(editingTask.id, { title, description });
-      } else {
-        await createTask({ title, description, projectId });
-      }
-      setIsTaskModalOpen(false);
-      setEditingTask(null);
-      loadTasks();
-    } catch (err) {
-      console.error(err);
-      setError("Could not save task.");
+  // ✅ MODIFICAT: primește și trimite priority + complexity
+  const handleSaveTask = async ({
+  title,
+  description,
+  projectId,
+  priority,
+  complexity,
+  assignee,
+  tags,
+}) => {
+  try {
+    if (editingTask) {
+      await updateTask(editingTask.id, {
+        title,
+        description,
+        priority,
+        complexity,
+        assignee,
+        tags,
+      });
+    } else {
+      await createTask({
+        title,
+        description,
+        projectId,
+        priority,
+        complexity,
+        assignee,
+        tags,
+      });
     }
-  };
+
+    setIsTaskModalOpen(false);
+    setEditingTask(null);
+    loadTasks();
+  } catch (err) {
+    console.error(err);
+    setError(err?.response?.data?.detail || "Could not save task.");
+  }
+};
 
   const handleChangeStatus = async (task, status) => {
     try {
@@ -142,6 +180,16 @@ export default function TasksPanel({ projectId }) {
       {!loading && sortedTasks.length === 0 && (
         <p>No tasks yet for this project.</p>
       )}
+      
+
+      {/* DEBUG UI (temporar) */}
+<div style={{ marginTop: 12, padding: 10, background: "#fff", borderRadius: 8 }}>
+  <div><strong>DEBUG:</strong> projectId = {String(projectId)}</div>
+  <div><strong>tasks.length:</strong> {tasks.length}</div>
+  <pre style={{ whiteSpace: "pre-wrap", fontSize: 12 }}>
+    {JSON.stringify(tasks, null, 2)}
+  </pre>
+</div>
 
       <div className="tasks-list">
         {sortedTasks.map((task) => (
