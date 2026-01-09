@@ -8,6 +8,7 @@ import {
   updateTask,
   deleteTask,
   updateTaskStatus,
+  estimateTaskEffort, // 🔹 import pentru AI story points
 } from "../api/taskService";
 
 import TaskModal from "../components/modals/TaskModal";
@@ -41,12 +42,16 @@ export default function ProjectDetailPage() {
 
   const [sortBy, setSortBy] = useState("created_at"); // created_at | title | status
 
-  // ✅ IMPORTANT: modal is CLOSED by default and will be force-closed when project changes
+  // task modal
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
 
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [taskToDelete, setTaskToDelete] = useState(null);
+
+  // 🔹 AI estimate state
+  const [estimating, setEstimating] = useState(false);
+  const [estimateError, setEstimateError] = useState("");
 
   // --------------------------------------------------
   // Load project
@@ -54,7 +59,6 @@ export default function ProjectDetailPage() {
   useEffect(() => {
     let cancelled = false;
 
-    // ✅ when entering a project, ensure modal is not shown
     setIsTaskModalOpen(false);
     setEditingTask(null);
     setIsDeleteOpen(false);
@@ -211,7 +215,6 @@ export default function ProjectDetailPage() {
     setIsTaskModalOpen(true);
   }
 
-  // ✅ after SAVE: always close modal (even if loadTasks fails)
   async function handleSaveTask({
     title,
     description,
@@ -242,11 +245,8 @@ export default function ProjectDetailPage() {
         });
       }
 
-      // ✅ close immediately after successful save
       setIsTaskModalOpen(false);
       setEditingTask(null);
-
-      // refresh list
       await loadTasks();
     } catch (err) {
       console.error(err);
@@ -298,6 +298,36 @@ export default function ProjectDetailPage() {
           err?.message ||
           "Failed to delete task"
       );
+    }
+  }
+
+  // --------------------------------------------------
+  // 🔹 AI Story Points handler
+  // --------------------------------------------------
+  async function handleEstimateStoryPoints() {
+    if (!tasks.length) return;
+
+    setEstimating(true);
+    setEstimateError("");
+
+    try {
+      const updatedTasks = await Promise.all(
+        tasks.map(async (t) => {
+          try {
+            const result = await estimateTaskEffort(t.id);
+            return { ...t, story_points: result.story_points };
+          } catch {
+            return t;
+          }
+        })
+      );
+
+      setTasks(updatedTasks);
+    } catch (err) {
+      console.error(err);
+      setEstimateError("Estimarea AI a eșuat pentru unele task-uri.");
+    } finally {
+      setEstimating(false);
     }
   }
 
@@ -514,6 +544,11 @@ export default function ProjectDetailPage() {
                           <span className="meta-chip">
                             Tags: {t.tags || "—"}
                           </span>
+                          {t.story_points !== undefined && (
+                            <span className="meta-chip">
+                              SP: {t.story_points}
+                            </span>
+                          )}
                         </div>
 
                       </div>
@@ -556,9 +591,10 @@ export default function ProjectDetailPage() {
               <button onClick={() => alert("TODO: Generate task descriptions")}>
                 Generate task descriptions
               </button>
-              <button onClick={() => alert("TODO: Estimate story points")}>
-                Estimate story points
+              <button onClick={handleEstimateStoryPoints} disabled={estimating}>
+                {estimating ? "Estimating..." : "Estimate story points"}
               </button>
+              {estimateError && <span className="error-text">{estimateError}</span>}
               <button onClick={() => alert("TODO: Create project summary")}>
                 Create project summary
               </button>

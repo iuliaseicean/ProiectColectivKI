@@ -8,6 +8,7 @@ import {
   updateTaskStatus,
 } from "../../api/taskService";
 import TaskCard from "./TaskCard";
+import TaskCard from "./tasks/TaskCard";
 import TaskModal from "../modals/TaskModal";
 import ConfirmDeleteModal from "../modals/ConfirmDeleteModal";
 
