@@ -1,9 +1,28 @@
-# backend/schemas/task_schema.py
-
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
+
+
+# ----------------------------
+# Helpers
+# ----------------------------
+_ALLOWED_LEVELS = {"low", "medium", "high"}
+_ALLOWED_STATUS = {"todo", "in_progress", "done"}
+
+
+def _norm_level(v: Optional[str], default: str = "medium") -> str:
+    if v is None:
+        return default
+    s = str(v).strip().lower()
+    return s if s in _ALLOWED_LEVELS else default
+
+
+def _norm_status(v: Optional[str], default: str = "todo") -> str:
+    if v is None:
+        return default
+    s = str(v).strip().lower()
+    return s if s in _ALLOWED_STATUS else default
 
 
 # ====== CREATE ======
@@ -19,6 +38,18 @@ class TaskCreate(BaseModel):
     assignee: Optional[str] = None
     tags: Optional[str] = None
 
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("Title cannot be empty")
+        return s
+
+    @field_validator("priority", "complexity")
+    @classmethod
+    def validate_levels(cls, v: str) -> str:
+        return _norm_level(v)
 
 
 # ====== UPDATE ======
@@ -26,12 +57,38 @@ class TaskUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     status: Optional[str] = None
+
     priority: Optional[str] = None
     complexity: Optional[str] = None
+
     assignee: Optional[str] = None
     tags: Optional[str] = None
+
     ai_story: Optional[str] = None
 
+    @field_validator("title")
+    @classmethod
+    def validate_title_optional(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        s = v.strip()
+        if not s:
+            raise ValueError("Title cannot be empty")
+        return s
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        return _norm_status(v)
+
+    @field_validator("priority", "complexity")
+    @classmethod
+    def validate_levels_optional(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        return _norm_level(v)
 
 
 # ====== READ ======
@@ -43,8 +100,14 @@ class TaskRead(BaseModel):
 
     priority: str
     complexity: str
-    estimated_story_points: Optional[int]
-    ai_confidence: Optional[float]
+
+    # 🔹 Persisted in DB
+    estimated_story_points: Optional[int] = None
+    ai_confidence: Optional[float] = None
+
+    # 🔹 Frontend-friendly field (alias)
+    story_points: Optional[int] = None
+
     assignee: Optional[str]
     tags: Optional[str]
     source: str
@@ -55,6 +118,22 @@ class TaskRead(BaseModel):
     updated_at: Optional[datetime]
 
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="after")
+    def fill_story_points(self):
+        """
+        If story_points is not provided, map it from estimated_story_points.
+        This keeps UI simple: it can read task.story_points directly.
+        """
+        if self.story_points is None and self.estimated_story_points is not None:
+            self.story_points = self.estimated_story_points
+
+        # normalize status/levels (defensive)
+        self.status = _norm_status(self.status)
+        self.priority = _norm_level(self.priority)
+        self.complexity = _norm_level(self.complexity)
+
+        return self
 
 
 class EffortEstimateResponse(BaseModel):

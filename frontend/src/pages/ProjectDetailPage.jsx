@@ -8,7 +8,7 @@ import {
   updateTask,
   deleteTask,
   updateTaskStatus,
-  estimateTaskEffort, // 🔹 import pentru AI story points
+  estimateTaskEffort, // AI per-task estimation
 } from "../api/taskService";
 
 import TaskModal from "../components/modals/TaskModal";
@@ -49,9 +49,19 @@ export default function ProjectDetailPage() {
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [taskToDelete, setTaskToDelete] = useState(null);
 
-  // 🔹 AI estimate state
-  const [estimating, setEstimating] = useState(false);
-  const [estimateError, setEstimateError] = useState("");
+  // -------------------------
+  // AI / Project-wide actions
+  // -------------------------
+  const [aiScope, setAiScope] = useState("open"); // "open" | "all" | "selected"
+  const [selectedTaskIds, setSelectedTaskIds] = useState(() => new Set());
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiMessage, setAiMessage] = useState("");
+  const [aiMessageType, setAiMessageType] = useState("error"); // "error" | "success" | "info"
+
+  function setAiFeedback(type, msg) {
+    setAiMessageType(type);
+    setAiMessage(msg);
+  }
 
   // --------------------------------------------------
   // Load project
@@ -59,15 +69,23 @@ export default function ProjectDetailPage() {
   useEffect(() => {
     let cancelled = false;
 
+    // reset modals
     setIsTaskModalOpen(false);
     setEditingTask(null);
     setIsDeleteOpen(false);
     setTaskToDelete(null);
 
+    // reset AI UI on project change
+    setAiScope("open");
+    setSelectedTaskIds(new Set());
+    setAiMessage("");
+    setAiBusy(false);
+
     (async () => {
       try {
         setLoading(true);
         setLoadError("");
+
         const data = await fetchProjectById(projectId);
         if (cancelled) return;
 
@@ -103,6 +121,7 @@ export default function ProjectDetailPage() {
       const data = await getTasksByProject(projectId);
       const arr = Array.isArray(data) ? data : data?.items ?? [];
 
+      // ✅ normalize + map story_points (backend now exposes story_points)
       const normalized = arr.map((t) => ({
         ...t,
         status: (t.status || "todo").toLowerCase(),
@@ -110,9 +129,24 @@ export default function ProjectDetailPage() {
         complexity: t.complexity ? String(t.complexity).toLowerCase() : "medium",
         assignee: t.assignee ?? "",
         tags: t.tags ?? "",
+        // ✅ story points for UI (prefer new field, fallback old)
+        story_points:
+          t.story_points !== undefined && t.story_points !== null
+            ? t.story_points
+            : t.estimated_story_points ?? null,
       }));
 
       setTasks(normalized);
+
+      // keep selectedTaskIds only for tasks that still exist
+      setSelectedTaskIds((prev) => {
+        const next = new Set();
+        const valid = new Set(normalized.map((t) => t.id));
+        prev.forEach((id) => {
+          if (valid.has(id)) next.add(id);
+        });
+        return next;
+      });
     } catch (err) {
       console.error(err);
       setTasksError(
@@ -302,32 +336,152 @@ export default function ProjectDetailPage() {
   }
 
   // --------------------------------------------------
-  // 🔹 AI Story Points handler
+  // ✅ Project-wide AI helpers
+  // --------------------------------------------------
+  function getScopedTasks() {
+    if (aiScope === "all") return tasks;
+
+    if (aiScope === "selected") {
+      const ids = selectedTaskIds;
+      return tasks.filter((t) => ids.has(t.id));
+    }
+
+    // default: "open" => todo + in_progress
+    return tasks.filter((t) => (t.status || "todo") !== "done");
+  }
+
+  function toggleSelectedTask(taskId) {
+    setSelectedTaskIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  }
+
+  function selectAllVisible() {
+    const visible = getScopedTasks();
+    setSelectedTaskIds((prev) => {
+      const next = new Set(prev);
+      visible.forEach((t) => next.add(t.id));
+      return next;
+    });
+    setAiScope("selected");
+    setAiFeedback("info", `Selected ${visible.length} tasks.`);
+  }
+
+  function clearSelection() {
+    setSelectedTaskIds(new Set());
+    setAiScope("open");
+    setAiMessage("");
+  }
+
+  // --------------------------------------------------
+  // ✅ AI action: Estimate story points (project-wide)
+  // Uses estimateTaskEffort(taskId)
   // --------------------------------------------------
   async function handleEstimateStoryPoints() {
-    if (!tasks.length) return;
+    const scopeTasks = getScopedTasks();
 
-    setEstimating(true);
-    setEstimateError("");
+    if (!scopeTasks.length) {
+      setAiFeedback("error", "No tasks in the selected scope.");
+      return;
+    }
+
+    if (aiScope === "selected" && selectedTaskIds.size === 0) {
+      setAiFeedback("error", "Scope is 'Selected' but no tasks are selected.");
+      return;
+    }
+
+    setAiBusy(true);
+    setAiMessage("");
 
     try {
-      const updatedTasks = await Promise.all(
+      const scopeIds = new Set(scopeTasks.map((t) => t.id));
+
+      const updated = await Promise.all(
         tasks.map(async (t) => {
+          if (!scopeIds.has(t.id)) return t;
+
+          // nu estimăm task-uri DONE (backend oricum blochează cu 409)
+          if ((t.status || "todo") === "done") return t;
+
           try {
             const result = await estimateTaskEffort(t.id);
-            return { ...t, story_points: result.story_points };
+            const sp =
+              result?.story_points !== undefined && result?.story_points !== null
+                ? result.story_points
+                : null;
+
+            return {
+              ...t,
+              // ✅ UI field
+              story_points: sp,
+              // ✅ keep DB-style field for compatibility if needed
+              estimated_story_points: sp,
+            };
           } catch {
             return t;
           }
         })
       );
 
-      setTasks(updatedTasks);
+      setTasks(updated);
+      setAiFeedback("success", "Story points updated.");
     } catch (err) {
       console.error(err);
-      setEstimateError("Estimarea AI a eșuat pentru unele task-uri.");
+      setAiFeedback("error", "AI estimation failed for some tasks.");
     } finally {
-      setEstimating(false);
+      setAiBusy(false);
+    }
+  }
+
+  // --------------------------------------------------
+  // ✅ AI action stubs (ready FE + clean messages)
+  // --------------------------------------------------
+  async function handleGenerateDescriptions() {
+    const scopeTasks = getScopedTasks();
+    if (!scopeTasks.length) {
+      setAiFeedback("error", "No tasks in the selected scope.");
+      return;
+    }
+    if (aiScope === "selected" && selectedTaskIds.size === 0) {
+      setAiFeedback("error", "Scope is 'Selected' but no tasks are selected.");
+      return;
+    }
+
+    setAiBusy(true);
+    setAiMessage("");
+
+    try {
+      // TODO: connect to backend endpoint
+      setAiFeedback(
+        "info",
+        "TODO: Backend endpoint for 'Generate task descriptions' is not connected yet."
+      );
+    } catch (err) {
+      console.error(err);
+      setAiFeedback("error", err?.message || "Failed to generate descriptions.");
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  async function handleCreateProjectSummary() {
+    setAiBusy(true);
+    setAiMessage("");
+
+    try {
+      // TODO: connect to backend endpoint
+      setAiFeedback(
+        "info",
+        "TODO: Backend endpoint for 'Create project summary' is not connected yet."
+      );
+    } catch (err) {
+      console.error(err);
+      setAiFeedback("error", err?.message || "Failed to create project summary.");
+    } finally {
+      setAiBusy(false);
     }
   }
 
@@ -349,13 +503,12 @@ export default function ProjectDetailPage() {
     );
   }
 
+  const scopeCount = getScopedTasks().length;
+
   return (
     <div className="project-detail-layout">
       <header className="project-detail-topbar">
-        <button
-          className="project-detail-back"
-          onClick={() => navigate("/projects")}
-        >
+        <button className="project-detail-back" onClick={() => navigate("/projects")}>
           ← Back to projects
         </button>
       </header>
@@ -406,10 +559,7 @@ export default function ProjectDetailPage() {
                   type="text"
                   value={editForm.infrastructure}
                   onChange={(e) =>
-                    setEditForm((f) => ({
-                      ...f,
-                      infrastructure: e.target.value,
-                    }))
+                    setEditForm((f) => ({ ...f, infrastructure: e.target.value }))
                   }
                   placeholder="Docker + Render"
                 />
@@ -422,17 +572,12 @@ export default function ProjectDetailPage() {
                   min="0"
                   value={editForm.members_count}
                   onChange={(e) =>
-                    setEditForm((f) => ({
-                      ...f,
-                      members_count: e.target.value,
-                    }))
+                    setEditForm((f) => ({ ...f, members_count: e.target.value }))
                   }
                 />
               </label>
 
-              {saveError && (
-                <div className="project-detail-save-error">{saveError}</div>
-              )}
+              {saveError && <div className="project-detail-save-error">{saveError}</div>}
 
               <div className="project-detail-edit-actions">
                 <button type="button" onClick={cancelEdit} disabled={saving}>
@@ -486,19 +631,13 @@ export default function ProjectDetailPage() {
             </p>
 
             <div className="project-detail-tasks-toolbar">
-              <button
-                className="project-detail-primary-btn"
-                onClick={openNewTaskModal}
-              >
+              <button className="project-detail-primary-btn" onClick={openNewTaskModal}>
                 + New Task
               </button>
 
               <div className="project-detail-tasks-sort">
                 <span>Sort by&nbsp;</span>
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
-                >
+                <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
                   <option value="created_at">Created date</option>
                   <option value="title">Title</option>
                   <option value="status">Status</option>
@@ -507,9 +646,7 @@ export default function ProjectDetailPage() {
             </div>
 
             {tasksLoading && <p>Loading tasks…</p>}
-            {tasksError && (
-              <p className="project-detail-save-error">{tasksError}</p>
-            )}
+            {tasksError && <p className="project-detail-save-error">{tasksError}</p>}
 
             {!tasksLoading && !tasksError && sortedTasks.length === 0 && (
               <div className="project-detail-placeholder">
@@ -525,37 +662,26 @@ export default function ProjectDetailPage() {
                       <div>
                         <strong>{t.title}</strong>
                         {t.description && (
-                          <span className="project-detail-task-desc">
-                            {" "}
-                            — {t.description}
-                          </span>
+                          <span className="project-detail-task-desc"> — {t.description}</span>
                         )}
 
                         <div className="project-detail-task-meta">
-                          <span className={`meta-chip meta-chip-priority meta-${t.priority || "medium"}`}>
+                          <span className={`meta-chip meta-${t.priority || "medium"}`}>
                             Priority: {t.priority || "—"}
                           </span>
-                          <span className={`meta-chip meta-chip-complexity meta-${t.complexity || "medium"}`}>
+                          <span className={`meta-chip meta-${t.complexity || "medium"}`}>
                             Complexity: {t.complexity || "—"}
                           </span>
-                          <span className="meta-chip">
-                             Assignee: {t.assignee || "—"}
-                          </span>
-                          <span className="meta-chip">
-                            Tags: {t.tags || "—"}
-                          </span>
-                          {t.story_points !== undefined && (
-                            <span className="meta-chip">
-                              SP: {t.story_points}
-                            </span>
+                          <span className="meta-chip">Assignee: {t.assignee || "—"}</span>
+                          <span className="meta-chip">Tags: {t.tags || "—"}</span>
+
+                          {(t.story_points !== undefined && t.story_points !== null) && (
+                            <span className="meta-chip">SP: {t.story_points}</span>
                           )}
                         </div>
-
                       </div>
-                      
-                      <span
-                        className={`project-detail-task-status badge-${t.status}`}
-                      >
+
+                      <span className={`project-detail-task-status badge-${t.status}`}>
                         {t.status}
                       </span>
                     </div>
@@ -583,27 +709,136 @@ export default function ProjectDetailPage() {
           <div className="project-detail-column">
             <h2>AI Assistant</h2>
             <p className="project-detail-subtitle">
-              The AI uses all existing tasks to improve descriptions, estimate
-              story points and create project summaries.
+              Projektweite KI-Aktionen: run AI on tasks in this project.
             </p>
 
-            <div className="project-detail-ai-buttons">
-              <button onClick={() => alert("TODO: Generate task descriptions")}>
-                Generate task descriptions
+            {/* Scope */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 14, color: "#555" }}>Scope:</span>
+              <select
+                value={aiScope}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setAiScope(v);
+                  setAiMessage("");
+                  if (v !== "selected") setSelectedTaskIds(new Set());
+                }}
+                disabled={aiBusy}
+              >
+                <option value="open">Open tasks (TODO / IN_PROGRESS)</option>
+                <option value="all">All tasks</option>
+                <option value="selected">Selected tasks</option>
+              </select>
+
+              <span style={{ fontSize: 12, color: "#777" }}>({scopeCount} tasks)</span>
+            </div>
+
+            {/* Selection controls */}
+            <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+              <button
+                type="button"
+                onClick={selectAllVisible}
+                disabled={aiBusy || tasks.length === 0}
+                style={{ padding: "8px 12px", borderRadius: 10 }}
+              >
+                Select visible
               </button>
-              <button onClick={handleEstimateStoryPoints} disabled={estimating}>
-                {estimating ? "Estimating..." : "Estimate story points"}
+              <button
+                type="button"
+                onClick={clearSelection}
+                disabled={aiBusy}
+                style={{ padding: "8px 12px", borderRadius: 10 }}
+              >
+                Clear
               </button>
-              {estimateError && <span className="error-text">{estimateError}</span>}
-              <button onClick={() => alert("TODO: Create project summary")}>
-                Create project summary
+            </div>
+
+            {/* Selected list */}
+            {(aiScope === "selected" || selectedTaskIds.size > 0) && (
+              <div
+                style={{
+                  marginTop: 12,
+                  padding: 12,
+                  borderRadius: 14,
+                  background: "rgba(255,255,255,0.5)",
+                }}
+              >
+                <div style={{ fontSize: 12, color: "#666", marginBottom: 8 }}>
+                  Click tasks below to (un)select:
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {sortedTasks.map((t) => (
+                    <label
+                      key={t.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        cursor: "pointer",
+                        userSelect: "none",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedTaskIds.has(t.id)}
+                        onChange={() => toggleSelectedTask(t.id)}
+                        disabled={aiBusy}
+                      />
+                      <span style={{ fontSize: 14 }}>
+                        {t.title} <span style={{ color: "#888" }}>({t.status})</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Feedback */}
+            {aiMessage && (
+              <div
+                style={{
+                  marginTop: 12,
+                  padding: "10px 12px",
+                  borderRadius: 12,
+                  background:
+                    aiMessageType === "success"
+                      ? "rgba(120, 220, 160, 0.18)"
+                      : aiMessageType === "info"
+                      ? "rgba(120, 170, 230, 0.18)"
+                      : "rgba(240, 120, 120, 0.18)",
+                  color:
+                    aiMessageType === "success"
+                      ? "#1b5e20"
+                      : aiMessageType === "info"
+                      ? "#0d47a1"
+                      : "#b71c1c",
+                  fontSize: 14,
+                }}
+              >
+                {aiMessage}
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="project-detail-ai-buttons" style={{ marginTop: 12 }}>
+              <button onClick={handleGenerateDescriptions} disabled={aiBusy}>
+                {aiBusy ? "Working..." : "Generate task descriptions"}
+              </button>
+
+              <button onClick={handleEstimateStoryPoints} disabled={aiBusy}>
+                {aiBusy ? "Working..." : "Estimate story points"}
+              </button>
+
+              <button onClick={handleCreateProjectSummary} disabled={aiBusy}>
+                {aiBusy ? "Working..." : "Create project summary"}
               </button>
             </div>
           </div>
         </section>
       </main>
 
-      {/* ✅ Modal appears ONLY when isTaskModalOpen is true */}
+      {/* Modals */}
       <TaskModal
         open={isTaskModalOpen}
         onClose={() => {
