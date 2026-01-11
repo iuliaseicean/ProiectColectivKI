@@ -23,14 +23,6 @@
   cursor: pointer;
 }
 
-.project-detail-topbar__icon-btn {
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  margin-left: 12px;
-  font-size: 0.9rem;
-}
-
 /* MAIN LAYOUT */
 
 .project-detail-main {
@@ -198,6 +190,107 @@
   color: #444;
 }
 
+/* ============================= */
+/* AI PANEL (new)                */
+/* ============================= */
+
+.project-detail-ai-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.project-detail-ai-controls span {
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.project-detail-ai-controls select {
+  border-radius: 12px;
+  border: 1px solid #ddd;
+  padding: 8px 10px;
+  background: #fff;
+  font-size: 0.9rem;
+  color: #222;
+}
+
+.project-detail-ai-count {
+  font-size: 0.8rem;
+  color: #777;
+}
+
+.project-detail-ai-selection-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.project-detail-ai-selection-actions button {
+  border-radius: 12px;
+  border: 1px solid #ddd;
+  background: #fff;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: #222;
+}
+
+.project-detail-ai-selection-box {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.project-detail-ai-selection-hint {
+  font-size: 0.8rem;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+.project-detail-ai-selection-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.project-detail-ai-selection-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.project-detail-ai-selection-item input {
+  cursor: pointer;
+}
+
+.project-detail-ai-feedback {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.project-detail-ai-feedback--success {
+  background: rgba(120, 220, 160, 0.18);
+  color: #1b5e20;
+}
+
+.project-detail-ai-feedback--info {
+  background: rgba(120, 170, 230, 0.18);
+  color: #0d47a1;
+}
+
+.project-detail-ai-feedback--error {
+  background: rgba(240, 120, 120, 0.18);
+  color: #b71c1c;
+}
+
 /* AI BUTTONS */
 
 .project-detail-ai-buttons button {
@@ -211,28 +304,9 @@
   cursor: pointer;
 }
 
-/* TASK ITEMS – FIX WHITE TEXT ISSUE */
-
-.project-task-list {
-  margin-top: 16px;
-}
-
-.project-task-item {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-.project-task-title {
-  font-weight: 600;
-  font-size: 1rem;
-  color: #222;      /* vizibil pe fundal deschis */
-  margin-bottom: 2px;
-}
-
-.project-task-description {
-  color: #444;      /* descriere vizibilă */
-  font-size: 0.9rem;
+.project-detail-ai-buttons button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 
 /* ERROR STATE */
@@ -327,6 +401,43 @@
   font-size: 0.9rem;
   color: #555;
 }
+
+/* Meta chips */
+
+.project-detail-task-meta {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.meta-chip {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.meta-low {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+}
+
+.meta-medium {
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.meta-high {
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+/* Actions */
 
 .project-detail-task-actions {
   margin-top: 8px;
@@ -477,62 +588,51 @@
   text-shadow: none !important;
 }
 
-/* FORȚĂM CULOAREA ȘI LA OPȚIUNI */
-
 .project-detail-tasks-sort select option {
   color: #222222 !important;
   background-color: #ffffff !important;
 }
 
-/* EDGE / CHROME / WINDOWS SPECIAL FIX */
-
 .project-detail-tasks-sort select::-ms-value {
   color: #222222 !important;
 }
-
-/* DEZACTIVĂM TEMA OS */
 
 .project-detail-tasks-sort select {
   forced-color-adjust: none;
 }
 
-/* SIGURANȚĂ EXTRA (când e selectat) */
-
 .project-detail-tasks-sort select:not(:focus) {
   color: #222222 !important;
 }
 
+/* Responsive */
 
-.project-detail-task-meta {
-  margin-top: 8px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
+@media (max-width: 980px) {
+  .project-detail-layout {
+    padding: 18px 18px;
+  }
+
+  .project-detail-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .project-detail-info {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
-.meta-chip {
-  font-size: 12px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: #f3f4f6;
-  border: 1px solid #e5e7eb;
-  line-height: 1.2;
-  white-space: nowrap;
-}
+@media (max-width: 520px) {
+  .project-detail-info {
+    grid-template-columns: 1fr;
+  }
 
-/* colorare ușoară pt priority/complexity */
-.meta-low {
-  background: #ecfdf5;
-  border-color: #a7f3d0;
-}
+  .project-detail-tasks-toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 
-.meta-medium {
-  background: #fffbeb;
-  border-color: #fde68a;
-}
-
-.meta-high {
-  background: #fef2f2;
-  border-color: #fecaca;
+  .project-detail-task-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
 }
