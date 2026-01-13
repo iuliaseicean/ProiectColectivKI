@@ -8,7 +8,9 @@ import {
   updateTask,
   deleteTask,
   updateTaskStatus,
-  estimateTaskEffort, // AI per-task estimation
+  estimateTaskEffort,
+  generateDescriptionsForProject,
+  createProjectSummary, // ✅ NEW
 } from "../api/taskService";
 
 import TaskModal from "../components/modals/TaskModal";
@@ -58,6 +60,9 @@ export default function ProjectDetailPage() {
   const [aiMessage, setAiMessage] = useState("");
   const [aiMessageType, setAiMessageType] = useState("error"); // "error" | "success" | "info"
 
+  // ✅ Project summary UI
+  const [projectSummary, setProjectSummary] = useState("");
+
   function setAiFeedback(type, msg) {
     setAiMessageType(type);
     setAiMessage(msg);
@@ -80,6 +85,7 @@ export default function ProjectDetailPage() {
     setSelectedTaskIds(new Set());
     setAiMessage("");
     setAiBusy(false);
+    setProjectSummary("");
 
     (async () => {
       try {
@@ -121,7 +127,6 @@ export default function ProjectDetailPage() {
       const data = await getTasksByProject(projectId);
       const arr = Array.isArray(data) ? data : data?.items ?? [];
 
-      // ✅ normalize + map story_points (backend now exposes story_points)
       const normalized = arr.map((t) => ({
         ...t,
         status: (t.status || "todo").toLowerCase(),
@@ -129,7 +134,6 @@ export default function ProjectDetailPage() {
         complexity: t.complexity ? String(t.complexity).toLowerCase() : "medium",
         assignee: t.assignee ?? "",
         tags: t.tags ?? "",
-        // ✅ story points for UI (prefer new field, fallback old)
         story_points:
           t.story_points !== undefined && t.story_points !== null
             ? t.story_points
@@ -138,7 +142,6 @@ export default function ProjectDetailPage() {
 
       setTasks(normalized);
 
-      // keep selectedTaskIds only for tasks that still exist
       setSelectedTaskIds((prev) => {
         const next = new Set();
         const valid = new Set(normalized.map((t) => t.id));
@@ -346,7 +349,7 @@ export default function ProjectDetailPage() {
       return tasks.filter((t) => ids.has(t.id));
     }
 
-    // default: "open" => todo + in_progress
+    // default open
     return tasks.filter((t) => (t.status || "todo") !== "done");
   }
 
@@ -378,7 +381,6 @@ export default function ProjectDetailPage() {
 
   // --------------------------------------------------
   // ✅ AI action: Estimate story points (project-wide)
-  // Uses estimateTaskEffort(taskId)
   // --------------------------------------------------
   async function handleEstimateStoryPoints() {
     const scopeTasks = getScopedTasks();
@@ -402,8 +404,6 @@ export default function ProjectDetailPage() {
       const updated = await Promise.all(
         tasks.map(async (t) => {
           if (!scopeIds.has(t.id)) return t;
-
-          // nu estimăm task-uri DONE (backend oricum blochează cu 409)
           if ((t.status || "todo") === "done") return t;
 
           try {
@@ -415,9 +415,7 @@ export default function ProjectDetailPage() {
 
             return {
               ...t,
-              // ✅ UI field
               story_points: sp,
-              // ✅ keep DB-style field for compatibility if needed
               estimated_story_points: sp,
             };
           } catch {
@@ -437,10 +435,71 @@ export default function ProjectDetailPage() {
   }
 
   // --------------------------------------------------
-  // ✅ AI action stubs (ready FE + clean messages)
+  // ✅ AI action: Generate task descriptions (batch)
   // --------------------------------------------------
   async function handleGenerateDescriptions() {
     const scopeTasks = getScopedTasks();
+
+    if (!scopeTasks.length) {
+      setAiFeedback("error", "No tasks in the selected scope.");
+      return;
+    }
+
+    if (aiScope === "selected" && selectedTaskIds.size === 0) {
+      setAiFeedback("error", "Scope is 'Selected' but no tasks are selected.");
+      return;
+    }
+
+    setAiBusy(true);
+    setAiMessage("");
+
+    try {
+      const taskIds = aiScope === "selected" ? scopeTasks.map((t) => t.id) : null;
+      const includeDone = aiScope === "all";
+
+      const updatedTasks = await generateDescriptionsForProject(projectId, {
+        task_ids: taskIds,
+        include_done: includeDone,
+      });
+
+      setTasks((prev) => {
+        const map = new Map(prev.map((t) => [t.id, t]));
+        for (const u of updatedTasks) {
+          const old = map.get(u.id) || {};
+          map.set(u.id, {
+            ...old,
+            ...u,
+            status: (u.status || old.status || "todo").toLowerCase(),
+            priority: (u.priority || old.priority || "medium").toLowerCase(),
+            complexity: (u.complexity || old.complexity || "medium").toLowerCase(),
+            assignee: u.assignee ?? old.assignee ?? "",
+            tags: u.tags ?? old.tags ?? "",
+            story_points:
+              u.story_points !== undefined && u.story_points !== null
+                ? u.story_points
+                : u.estimated_story_points ?? old.story_points ?? null,
+          });
+        }
+        return Array.from(map.values());
+      });
+
+      setAiFeedback("success", `Generated descriptions for ${updatedTasks.length} task(s).`);
+    } catch (err) {
+      console.error(err);
+      setAiFeedback("error", err?.message || "Failed to generate descriptions.");
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  // --------------------------------------------------
+  // ✅ AI action: Create project summary
+  // Calls backend POST /tasks/ai/project-summary
+  // --------------------------------------------------
+  async function handleCreateProjectSummary() {
+    const scopeTasks = getScopedTasks();
+
+    // optional: require at least something in scope
     if (!scopeTasks.length) {
       setAiFeedback("error", "No tasks in the selected scope.");
       return;
@@ -454,29 +513,17 @@ export default function ProjectDetailPage() {
     setAiMessage("");
 
     try {
-      // TODO: connect to backend endpoint
-      setAiFeedback(
-        "info",
-        "TODO: Backend endpoint for 'Generate task descriptions' is not connected yet."
-      );
-    } catch (err) {
-      console.error(err);
-      setAiFeedback("error", err?.message || "Failed to generate descriptions.");
-    } finally {
-      setAiBusy(false);
-    }
-  }
+      const taskIds = aiScope === "selected" ? scopeTasks.map((t) => t.id) : null;
+      const includeDone = aiScope === "all";
 
-  async function handleCreateProjectSummary() {
-    setAiBusy(true);
-    setAiMessage("");
+      const out = await createProjectSummary(projectId, {
+        task_ids: taskIds,
+        include_done: includeDone,
+      });
 
-    try {
-      // TODO: connect to backend endpoint
-      setAiFeedback(
-        "info",
-        "TODO: Backend endpoint for 'Create project summary' is not connected yet."
-      );
+      const summaryText = out?.summary || "";
+      setProjectSummary(summaryText);
+      setAiFeedback("success", "Project summary generated.");
     } catch (err) {
       console.error(err);
       setAiFeedback("error", err?.message || "Failed to create project summary.");
@@ -590,9 +637,7 @@ export default function ProjectDetailPage() {
             </form>
           ) : (
             <>
-              <p className="project-detail-description">
-                {project.description || "No description yet."}
-              </p>
+              <p className="project-detail-description">{project.description || "No description yet."}</p>
 
               <div className="project-detail-info">
                 <div>
@@ -610,9 +655,7 @@ export default function ProjectDetailPage() {
                 <div>
                   <h4>Start date</h4>
                   <p>
-                    {project.start_date
-                      ? new Date(project.start_date).toLocaleDateString()
-                      : "-"}
+                    {project.start_date ? new Date(project.start_date).toLocaleDateString() : "-"}
                   </p>
                 </div>
               </div>
@@ -626,8 +669,8 @@ export default function ProjectDetailPage() {
           <div className="project-detail-column">
             <h2>Tasks</h2>
             <p className="project-detail-subtitle">
-              Define new tasks with title and short description. Later they can
-              be sent to the AI model for better descriptions and estimations.
+              Define new tasks with title and short description. Later they can be sent to the AI model
+              for better descriptions and estimations.
             </p>
 
             <div className="project-detail-tasks-toolbar">
@@ -661,9 +704,7 @@ export default function ProjectDetailPage() {
                     <div className="project-detail-task-main">
                       <div>
                         <strong>{t.title}</strong>
-                        {t.description && (
-                          <span className="project-detail-task-desc"> — {t.description}</span>
-                        )}
+                        {t.description && <span className="project-detail-task-desc"> — {t.description}</span>}
 
                         <div className="project-detail-task-meta">
                           <span className={`meta-chip meta-${t.priority || "medium"}`}>
@@ -675,15 +716,13 @@ export default function ProjectDetailPage() {
                           <span className="meta-chip">Assignee: {t.assignee || "—"}</span>
                           <span className="meta-chip">Tags: {t.tags || "—"}</span>
 
-                          {(t.story_points !== undefined && t.story_points !== null) && (
+                          {t.story_points !== undefined && t.story_points !== null && (
                             <span className="meta-chip">SP: {t.story_points}</span>
                           )}
                         </div>
                       </div>
 
-                      <span className={`project-detail-task-status badge-${t.status}`}>
-                        {t.status}
-                      </span>
+                      <span className={`project-detail-task-status badge-${t.status}`}>{t.status}</span>
                     </div>
 
                     <div className="project-detail-task-actions">
@@ -708,9 +747,7 @@ export default function ProjectDetailPage() {
           {/* AI Assistant column */}
           <div className="project-detail-column">
             <h2>AI Assistant</h2>
-            <p className="project-detail-subtitle">
-              Projektweite KI-Aktionen: run AI on tasks in this project.
-            </p>
+            <p className="project-detail-subtitle">Projektweite KI-Aktionen: run AI on tasks in this project.</p>
 
             {/* Scope */}
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -721,6 +758,7 @@ export default function ProjectDetailPage() {
                   const v = e.target.value;
                   setAiScope(v);
                   setAiMessage("");
+                  setProjectSummary("");
                   if (v !== "selected") setSelectedTaskIds(new Set());
                 }}
                 disabled={aiBusy}
@@ -834,6 +872,23 @@ export default function ProjectDetailPage() {
                 {aiBusy ? "Working..." : "Create project summary"}
               </button>
             </div>
+
+            {/* ✅ Summary output */}
+            {projectSummary && (
+              <div
+                style={{
+                  marginTop: 12,
+                  padding: 12,
+                  borderRadius: 14,
+                  background: "rgba(255,255,255,0.6)",
+                  whiteSpace: "pre-wrap",
+                  fontSize: 14,
+                  lineHeight: 1.4,
+                }}
+              >
+                {projectSummary}
+              </div>
+            )}
           </div>
         </section>
       </main>
