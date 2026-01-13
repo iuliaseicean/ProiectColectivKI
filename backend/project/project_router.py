@@ -6,6 +6,8 @@ import os
 import logging
 from typing import List, Optional
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -23,6 +25,9 @@ from backend.task.ai_service import (
 # ✅ MODELS must live in ONE place only
 from backend.models.project import Project
 from backend.models.task import Task
+
+# ✅ Notifications (NEW)
+from backend.models.notification import Notification
 
 logger = logging.getLogger("backend.project")
 
@@ -58,6 +63,35 @@ def _tasks_to_text(tasks: List[Task], max_tasks: int = 60) -> str:
     return "\n".join(lines).strip()
 
 
+def _notify(
+    db: Session,
+    *,
+    ntype: str,
+    message: str,
+    project_id: Optional[int] = None,
+    task_id: Optional[int] = None,
+) -> None:
+    """
+    Creează o notificare simplă.
+    - nu dă commit separat (se bazează pe commit-ul endpoint-ului)
+    """
+    try:
+        n = Notification(
+            type=ntype,
+            message=message,
+            is_read=False,
+            created_at=datetime.utcnow(),
+            project_id=project_id,
+            task_id=task_id,
+        )
+        db.add(n)
+    except Exception:
+        logger.exception(
+            "notification_create_failed",
+            extra={"type": ntype, "project_id": project_id, "task_id": task_id},
+        )
+
+
 # ==========================
 # CRUD: Projects
 # ==========================
@@ -72,8 +106,29 @@ def create_project(data: ProjectCreate, db: Session = Depends(get_db)):
         start_date=data.start_date,
     )
     db.add(project)
+
+    # ✅ notify (project created)
+    _notify(
+        db,
+        ntype="project_created",
+        message=f"Project created: {data.name}",
+    )
+
     db.commit()
     db.refresh(project)
+
+    # opțional: notificare cu project_id explicit
+    try:
+        _notify(
+            db,
+            ntype="project_created",
+            message=f"Project created: {project.name}",
+            project_id=project.id,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+
     return project
 
 
@@ -96,18 +151,37 @@ def update_project(project_id: int, data: ProjectUpdate, db: Session = Depends(g
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    if data.name is not None:
+    old_name = project.name
+
+    changed_fields: List[str] = []
+
+    if data.name is not None and data.name != project.name:
         project.name = data.name
+        changed_fields.append("name")
     if data.description is not None:
         project.description = data.description
+        changed_fields.append("description")
     if data.tech_stack is not None:
         project.tech_stack = data.tech_stack
+        changed_fields.append("tech_stack")
     if data.infrastructure is not None:
         project.infrastructure = data.infrastructure
+        changed_fields.append("infrastructure")
     if data.members_count is not None:
         project.members_count = data.members_count
+        changed_fields.append("members_count")
     if data.start_date is not None:
         project.start_date = data.start_date
+        changed_fields.append("start_date")
+
+    # ✅ notify (project updated)
+    display_name = data.name if data.name else old_name
+    _notify(
+        db,
+        ntype="project_updated",
+        message=f"Project updated ({', '.join(changed_fields) if changed_fields else 'fields'}): {display_name}",
+        project_id=project_id,
+    )
 
     db.commit()
     db.refresh(project)
@@ -119,6 +193,16 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
     project = db.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    pname = project.name
+
+    # ✅ notify before delete
+    _notify(
+        db,
+        ntype="project_deleted",
+        message=f"Project deleted: {pname}",
+        project_id=project_id,
+    )
 
     db.delete(project)
     db.commit()
@@ -150,7 +234,6 @@ def create_project_summary(
 ):
     _ai_enabled_or_503()
 
-    # ✅ dacă nu vine body deloc, folosim default
     if req is None:
         req = ProjectSummaryRequest()
 
@@ -160,7 +243,6 @@ def create_project_summary(
 
     q = db.query(Task).filter(Task.project_id == project_id)
 
-    # dacă task_ids e trimis explicit, îl validăm
     if req.task_ids is not None:
         if len(req.task_ids) == 0:
             raise HTTPException(status_code=400, detail="task_ids cannot be empty when provided")
@@ -184,20 +266,32 @@ def create_project_summary(
 
     try:
         summary = ai.generate_project_summary(payload)
-        return ProjectSummaryResponse(
-            project_id=project_id,
-            summary=summary,
-            method=ai.provider,  # "openai" sau "placeholder"
-        )
+        method = ai.provider  # "openai" sau "placeholder"
 
     except (AIServiceTimeoutError, AIServiceInvalidResponseError, AIServiceError) as exc:
         logger.warning(
             "ai_project_summary_failed_fallback_placeholder",
             extra={"project_id": project_id, "err": str(exc)},
         )
-
         fb = AIService()
         fb.provider = "placeholder"
         summary = fb.generate_project_summary(payload)
+        method = "placeholder"
 
-        return ProjectSummaryResponse(project_id=project_id, summary=summary, method="placeholder")
+    # ✅ notify (AI summary)
+    _notify(
+        db,
+        ntype="ai_project_summary",
+        message=f"AI summary generated for project: {project.name}",
+        project_id=project_id,
+    )
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+
+    return ProjectSummaryResponse(
+        project_id=project_id,
+        summary=summary,
+        method=method,
+    )
