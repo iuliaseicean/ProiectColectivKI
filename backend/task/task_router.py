@@ -1,10 +1,15 @@
-from datetime import datetime
-import os
-import logging
-from typing import Optional
+# backend/task/task_router.py
 
-from fastapi import APIRouter, Depends, HTTPException, Body
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, desc, Float
+from __future__ import annotations
+
+from datetime import datetime
+import logging
+import os
+from typing import Optional, List, Any, Dict
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Float, desc
 from sqlalchemy.orm import Session
 
 from backend.database import Base
@@ -25,20 +30,22 @@ from backend.task.ai_service import (
     AIServiceInvalidResponseError,
 )
 
-from backend.project.project_router import Project  # presupunem că aici există modelul Project
+from backend.project.project_router import Project  # must expose SQLAlchemy model Project
+
 
 logger = logging.getLogger("backend.task")
 
 
-# ==========================
-#  SQLAlchemy MODEL
-# ==========================
+# =========================================================
+# SQLAlchemy MODEL
+# =========================================================
 class Task(Base):
     __tablename__ = "tasks"
 
     id = Column(Integer, primary_key=True, index=True)
+
     title = Column(String, nullable=False)
-    description = Column(String)
+    description = Column(String, nullable=True)
     status = Column(String, default="todo")
 
     priority = Column(String, default="medium")
@@ -50,23 +57,121 @@ class Task(Base):
     assignee = Column(String, nullable=True)
     tags = Column(String, nullable=True)
 
+    # method/source of last AI action or "manual"
     source = Column(String, default="manual")
-    ai_story = Column(String)
+
+    # optional free-form AI trace
+    ai_story = Column(String, nullable=True)
 
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
-# ==========================
-#  ROUTER
-# ==========================
+# =========================================================
+# ROUTER
+# =========================================================
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 
-# --------------------------
+# =========================================================
+# REQUEST MODELS
+# =========================================================
+class GenerateDescriptionsRequest(BaseModel):
+    project_id: int
+    task_ids: Optional[List[int]] = None
+    include_done: bool = False
+
+
+class EstimateEffortBatchRequest(BaseModel):
+    project_id: int
+    include_history: bool = True
+    max_history_tasks: int = Field(default=20, ge=0, le=100)
+
+
+class ProjectSummaryRequest(BaseModel):
+    project_id: int
+    # optional: if you want to limit which tasks are included
+    task_ids: Optional[List[int]] = None
+    include_done: bool = True
+
+
+class ProjectSummaryResponse(BaseModel):
+    project_id: int
+    summary: str
+    method: str
+
+
+# =========================================================
+# HELPERS
+# =========================================================
+def _ai_enabled_or_503() -> None:
+    if os.getenv("AI_ENABLED", "false").strip().lower() != "true":
+        raise HTTPException(
+            status_code=503,
+            detail="AI functionality is disabled (set AI_ENABLED=true)",
+        )
+
+
+def _build_history_text(
+    db: Session,
+    project_id: int,
+    current_task_id: int,
+    max_history_tasks: int,
+) -> Optional[str]:
+    if max_history_tasks <= 0:
+        return None
+
+    prev_tasks = (
+        db.query(Task)
+        .filter(Task.project_id == project_id, Task.id != current_task_id)
+        .order_by(desc(Task.created_at))
+        .limit(max_history_tasks)
+        .all()
+    )
+
+    lines = [
+        f"- {t.title} | status={t.status} | desc={t.description or ''}".strip()
+        for t in reversed(prev_tasks)
+    ]
+    return "\n".join(lines) if lines else None
+
+
+def _fallback_placeholder_estimate(payload: Dict[str, Any]) -> Dict[str, Any]:
+    fallback = AIService()
+    fallback.provider = "placeholder"
+    return fallback.estimate_effort(payload)
+
+
+def _fallback_placeholder_description(payload: Dict[str, Any]) -> str:
+    fallback = AIService()
+    fallback.provider = "placeholder"
+    return fallback.generate_description(payload)
+
+
+def _fallback_placeholder_project_summary(payload: Dict[str, Any]) -> str:
+    fallback = AIService()
+    fallback.provider = "placeholder"
+    return fallback.generate_project_summary(payload)
+
+
+def _task_to_summary_item(t: Task) -> Dict[str, Any]:
+    return {
+        "id": t.id,
+        "title": t.title,
+        "status": (t.status or "").lower(),
+        "priority": (t.priority or "").lower(),
+        "complexity": (t.complexity or "").lower(),
+        "assignee": t.assignee,
+        "tags": t.tags,
+        "story_points": t.estimated_story_points,
+    }
+
+
+# =========================================================
 # CRUD TASKS
-# --------------------------
+# =========================================================
 @router.post("/", response_model=TaskRead)
 def create_task(data: TaskCreate, db: Session = Depends(get_db)):
     task = Task(
@@ -152,9 +257,9 @@ def update_status(task_id: int, status: str, db: Session = Depends(get_db)):
     return task
 
 
-# --------------------------
-# AI STORY / DESCRIPTION
-# --------------------------
+# =========================================================
+# AI STORY / DESCRIPTION (single)
+# =========================================================
 @router.post("/{task_id}/generate-story", response_model=TaskRead)
 def generate_ai_story(task_id: int, db: Session = Depends(get_db)):
     task = db.query(Task).get(task_id)
@@ -170,9 +275,7 @@ def generate_ai_story(task_id: int, db: Session = Depends(get_db)):
 
 @router.post("/{task_id}/ai-description", response_model=TaskRead)
 def generate_ai_description(task_id: int, db: Session = Depends(get_db)):
-    ai_enabled = os.getenv("AI_ENABLED", "false").lower() == "true"
-    if not ai_enabled:
-        raise HTTPException(status_code=503, detail="AI functionality is disabled")
+    _ai_enabled_or_503()
 
     task = db.query(Task).get(task_id)
     if not task:
@@ -180,7 +283,6 @@ def generate_ai_description(task_id: int, db: Session = Depends(get_db)):
 
     project = db.query(Project).get(task.project_id)
 
-    ai_service = AIService()
     payload = {
         "title": task.title,
         "description": task.description,
@@ -188,40 +290,123 @@ def generate_ai_description(task_id: int, db: Session = Depends(get_db)):
         "project_description": project.description if project else None,
         "tech_stack": getattr(project, "tech_stack", None) if project else None,
         "infrastructure": getattr(project, "infrastructure", None) if project else None,
+        "priority": task.priority,
+        "complexity": task.complexity,
+        "assignee": task.assignee,
+        "tags": task.tags,
     }
+
+    ai_service = AIService()
 
     try:
         generated = ai_service.generate_description(payload)
-    except AIServiceTimeoutError:
-        logger.error("ai_timeout", extra={"task_id": task_id, "project_id": task.project_id})
-        raise HTTPException(status_code=504, detail="AI service timed out, please try again later")
-    except AIServiceInvalidResponseError:
-        logger.error("ai_invalid_response", extra={"task_id": task_id, "project_id": task.project_id})
-        raise HTTPException(status_code=502, detail="AI produced an invalid response")
-    except AIServiceError:
-        logger.exception("ai_service_error", extra={"task_id": task_id, "project_id": task.project_id})
-        raise HTTPException(status_code=502, detail="AI service failure")
+        method = "openai" if ai_service.provider == "openai" else ai_service.provider
+    except (AIServiceTimeoutError, AIServiceInvalidResponseError, AIServiceError) as exc:
+        logger.warning(
+            "ai_description_failed_fallback_placeholder",
+            extra={"task_id": task_id, "project_id": task.project_id, "error": str(exc)},
+        )
+        generated = _fallback_placeholder_description(payload)
+        method = "placeholder"
+    except Exception as exc:
+        logger.warning(
+            "ai_description_unknown_failed_fallback_placeholder",
+            extra={"task_id": task_id, "project_id": task.project_id, "error": str(exc)},
+        )
+        generated = _fallback_placeholder_description(payload)
+        method = "placeholder"
 
     task.description = generated
     task.ai_story = (task.ai_story or "") + "\n\n[AI description generated]"
+    task.source = f"ai_description:{method}"
+
     db.commit()
     db.refresh(task)
     return task
 
 
-# --------------------------
-# ✅ AI EFFORT ESTIMATION (single)
-#  - Acceptă și request fără body (frontend friendly)
-# --------------------------
+# =========================================================
+# AI DESCRIPTION (batch)
+# POST /tasks/ai/generate-descriptions
+# =========================================================
+@router.post("/ai/generate-descriptions", response_model=list[TaskRead])
+def generate_descriptions_batch(req: GenerateDescriptionsRequest, db: Session = Depends(get_db)):
+    _ai_enabled_or_503()
+
+    q = db.query(Task).filter(Task.project_id == req.project_id)
+
+    # not provided vs provided empty list
+    if req.task_ids is not None:
+        if len(req.task_ids) == 0:
+            raise HTTPException(status_code=400, detail="task_ids cannot be empty when provided")
+        q = q.filter(Task.id.in_(req.task_ids))
+
+    if not req.include_done:
+        q = q.filter(Task.status != "done")
+
+    tasks = q.all()
+    if not tasks:
+        raise HTTPException(status_code=404, detail="No tasks found for the given scope")
+
+    project = db.query(Project).get(req.project_id)
+    ai_service = AIService()
+
+    updated: list[Task] = []
+
+    for task in tasks:
+        payload = {
+            "title": task.title,
+            "description": task.description,
+            "project_name": project.name if project else None,
+            "project_description": project.description if project else None,
+            "tech_stack": getattr(project, "tech_stack", None) if project else None,
+            "infrastructure": getattr(project, "infrastructure", None) if project else None,
+            "priority": task.priority,
+            "complexity": task.complexity,
+            "assignee": task.assignee,
+            "tags": task.tags,
+        }
+
+        try:
+            generated = ai_service.generate_description(payload)
+            method = "openai" if ai_service.provider == "openai" else ai_service.provider
+        except Exception:
+            try:
+                generated = _fallback_placeholder_description(payload)
+                method = "placeholder"
+            except Exception:
+                continue
+
+        try:
+            task.description = generated
+            task.ai_story = (task.ai_story or "") + "\n\n[AI description generated]"
+            task.source = f"ai_description:{method}"
+
+            db.add(task)
+            db.commit()
+            db.refresh(task)
+            updated.append(task)
+        except Exception:
+            db.rollback()
+            continue
+
+    if not updated:
+        raise HTTPException(status_code=502, detail="AI failed to generate descriptions for all tasks")
+
+    return updated
+
+
+# =========================================================
+# AI EFFORT ESTIMATION (single)
+# POST /tasks/{task_id}/estimate
+# =========================================================
 @router.post("/{task_id}/estimate", response_model=EffortEstimateResponse)
 def estimate_effort(
     task_id: int,
-    req: Optional[EffortEstimateRequest] = Body(default=None),
+    req: Optional[EffortEstimateRequest] = None,
     db: Session = Depends(get_db),
 ):
-    ai_enabled = os.getenv("AI_ENABLED", "false").lower() == "true"
-    if not ai_enabled:
-        raise HTTPException(status_code=503, detail="AI functionality is disabled")
+    _ai_enabled_or_503()
 
     task = db.query(Task).get(task_id)
     if not task:
@@ -230,7 +415,6 @@ def estimate_effort(
     if (task.status or "").lower() == "done":
         raise HTTPException(status_code=409, detail="Cannot estimate effort for a DONE task")
 
-    # ✅ default-uri dacă nu vine body
     include_history = True
     max_history_tasks = 20
     if req is not None:
@@ -240,19 +424,8 @@ def estimate_effort(
     project = db.query(Project).get(task.project_id)
 
     history_text = None
-    if include_history and max_history_tasks > 0:
-        prev_tasks = (
-            db.query(Task)
-            .filter(Task.project_id == task.project_id, Task.id != task.id)
-            .order_by(desc(Task.created_at))
-            .limit(max_history_tasks)
-            .all()
-        )
-        lines = [
-            f"- {t.title} | status={t.status} | desc={t.description or ''}".strip()
-            for t in reversed(prev_tasks)
-        ]
-        history_text = "\n".join(lines) if lines else None
+    if include_history:
+        history_text = _build_history_text(db, task.project_id, task.id, max_history_tasks)
 
     payload = {
         "title": task.title,
@@ -268,17 +441,17 @@ def estimate_effort(
     try:
         out = AIService().estimate_effort(payload)
     except (AIServiceTimeoutError, AIServiceInvalidResponseError, AIServiceError) as exc:
-        # ✅ fallback: placeholder fără să modificăm os.environ global
         logger.warning(
             "ai_estimate_failed_fallback_placeholder",
             extra={"task_id": task_id, "project_id": task.project_id, "error": str(exc)},
         )
-        try:
-            fallback = AIService()
-            fallback.provider = "placeholder"
-            out = fallback.estimate_effort(payload)
-        except Exception:
-            raise HTTPException(status_code=502, detail="AI estimation failed")
+        out = _fallback_placeholder_estimate(payload)
+    except Exception as exc:
+        logger.warning(
+            "ai_estimate_unknown_failed_fallback_placeholder",
+            extra={"task_id": task_id, "project_id": task.project_id, "error": str(exc)},
+        )
+        out = _fallback_placeholder_estimate(payload)
 
     try:
         task.estimated_story_points = int(out["story_points"])
@@ -288,62 +461,45 @@ def estimate_effort(
         db.refresh(task)
     except Exception:
         db.rollback()
-        logger.exception("ai_estimate_db_error", extra={"task_id": task_id, "project_id": task.project_id})
+        logger.exception(
+            "ai_estimate_db_error",
+            extra={"task_id": task_id, "project_id": task.project_id},
+        )
         raise HTTPException(status_code=500, detail="Failed to persist estimate to database")
 
     return EffortEstimateResponse(
         task_id=task.id,
         project_id=task.project_id,
-        story_points=task.estimated_story_points,
-        confidence=task.ai_confidence,
-        method=task.source,
+        story_points=task.estimated_story_points or 0,
+        confidence=task.ai_confidence or 0.0,
+        method=task.source or "unknown",
         rationale=str(out.get("rationale", "")),
     )
 
 
-# --------------------------
-# ✅ AI EFFORT ESTIMATION (batch)
-# --------------------------
+# =========================================================
+# AI EFFORT ESTIMATION (batch)
+# POST /tasks/ai/estimate-effort
+# =========================================================
 @router.post("/ai/estimate-effort", response_model=list[EffortEstimateResponse])
-def estimate_effort_all(
-    project_id: int = Body(...),
-    include_history: bool = Body(True),
-    max_history_tasks: int = Body(20),
-    db: Session = Depends(get_db),
-):
-    ai_enabled = os.getenv("AI_ENABLED", "false").lower() == "true"
-    if not ai_enabled:
-        raise HTTPException(status_code=503, detail="AI functionality is disabled")
+def estimate_effort_all(req: EstimateEffortBatchRequest, db: Session = Depends(get_db)):
+    _ai_enabled_or_503()
 
-    tasks = db.query(Task).filter(Task.project_id == project_id).all()
+    tasks = db.query(Task).filter(Task.project_id == req.project_id).all()
     if not tasks:
         raise HTTPException(status_code=404, detail="No tasks found for project")
 
-    project = db.query(Project).get(project_id)
+    project = db.query(Project).get(req.project_id)
     responses: list[EffortEstimateResponse] = []
-
-    # serviciu AI o singură dată
     ai_service = AIService()
 
     for task in tasks:
-        # nu estimăm pentru DONE
         if (task.status or "").lower() == "done":
             continue
 
         history_text = None
-        if include_history and max_history_tasks > 0:
-            prev_tasks = (
-                db.query(Task)
-                .filter(Task.project_id == project_id, Task.id != task.id)
-                .order_by(desc(Task.created_at))
-                .limit(max_history_tasks)
-                .all()
-            )
-            lines = [
-                f"- {t.title} | status={t.status} | desc={t.description or ''}".strip()
-                for t in reversed(prev_tasks)
-            ]
-            history_text = "\n".join(lines) if lines else None
+        if req.include_history:
+            history_text = _build_history_text(db, req.project_id, task.id, req.max_history_tasks)
 
         payload = {
             "title": task.title,
@@ -359,11 +515,8 @@ def estimate_effort_all(
         try:
             out = ai_service.estimate_effort(payload)
         except Exception:
-            # fallback placeholder
             try:
-                fallback = AIService()
-                fallback.provider = "placeholder"
-                out = fallback.estimate_effort(payload)
+                out = _fallback_placeholder_estimate(payload)
             except Exception:
                 continue
 
@@ -371,6 +524,7 @@ def estimate_effort_all(
             task.estimated_story_points = int(out["story_points"])
             task.ai_confidence = float(out.get("confidence", 0.0))
             task.source = str(out.get("method", "unknown"))
+
             db.commit()
             db.refresh(task)
 
@@ -378,9 +532,9 @@ def estimate_effort_all(
                 EffortEstimateResponse(
                     task_id=task.id,
                     project_id=task.project_id,
-                    story_points=task.estimated_story_points,
-                    confidence=task.ai_confidence,
-                    method=task.source,
+                    story_points=task.estimated_story_points or 0,
+                    confidence=task.ai_confidence or 0.0,
+                    method=task.source or "unknown",
                     rationale=str(out.get("rationale", "")),
                 )
             )
@@ -389,3 +543,63 @@ def estimate_effort_all(
             continue
 
     return responses
+
+
+# =========================================================
+# ✅ AI PROJECT SUMMARY
+# POST /tasks/ai/project-summary
+# body: { project_id, task_ids?, include_done? }
+# =========================================================
+@router.post("/ai/project-summary", response_model=ProjectSummaryResponse)
+def create_project_summary(req: ProjectSummaryRequest, db: Session = Depends(get_db)):
+    _ai_enabled_or_503()
+
+    project = db.query(Project).get(req.project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    q = db.query(Task).filter(Task.project_id == req.project_id)
+
+    if req.task_ids is not None:
+        if len(req.task_ids) == 0:
+            raise HTTPException(status_code=400, detail="task_ids cannot be empty when provided")
+        q = q.filter(Task.id.in_(req.task_ids))
+
+    if not req.include_done:
+        q = q.filter(Task.status != "done")
+
+    tasks = q.order_by(desc(Task.created_at)).all()
+
+    payload = {
+        "project_name": getattr(project, "name", None),
+        "project_description": getattr(project, "description", None),
+        "tech_stack": getattr(project, "tech_stack", None),
+        "infrastructure": getattr(project, "infrastructure", None),
+        "tasks": [_task_to_summary_item(t) for t in tasks],
+    }
+
+    ai_service = AIService()
+
+    try:
+        summary_text = ai_service.generate_project_summary(payload)
+        method = "openai" if ai_service.provider == "openai" else ai_service.provider
+    except (AIServiceTimeoutError, AIServiceInvalidResponseError, AIServiceError) as exc:
+        logger.warning(
+            "ai_project_summary_failed_fallback_placeholder",
+            extra={"project_id": req.project_id, "error": str(exc)},
+        )
+        summary_text = _fallback_placeholder_project_summary(payload)
+        method = "placeholder"
+    except Exception as exc:
+        logger.warning(
+            "ai_project_summary_unknown_failed_fallback_placeholder",
+            extra={"project_id": req.project_id, "error": str(exc)},
+        )
+        summary_text = _fallback_placeholder_project_summary(payload)
+        method = "placeholder"
+
+    return ProjectSummaryResponse(
+        project_id=req.project_id,
+        summary=summary_text,
+        method=method,
+    )

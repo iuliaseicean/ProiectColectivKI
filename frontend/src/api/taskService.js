@@ -1,4 +1,4 @@
-// frontend/src/api/taskService.js
+// src/api/taskService.js
 import axios from "axios";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
@@ -10,13 +10,16 @@ const api = axios.create({
   baseURL: API_URL,
 });
 
-// Atașăm automat Bearer token (dacă există)
+// Atașăm automat Bearer token (token sau access_token)
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("token");
+  const token =
+    localStorage.getItem("token") || localStorage.getItem("access_token");
+
   if (token) {
     config.headers = config.headers ?? {};
     config.headers.Authorization = `Bearer ${token}`;
   }
+
   return config;
 });
 
@@ -50,19 +53,20 @@ export async function createTask({
   complexity,
   assignee,
   tags,
-  source, // opțional
+  source,
 }) {
   try {
     const payload = {
       title,
       description: description || null,
-      project_id: projectId,
+      project_id: Number(projectId),
       priority: priority || "medium",
       complexity: complexity || "medium",
       assignee: assignee || null,
       tags: tags || null,
       source: source || "manual",
     };
+
     const res = await api.post(`/tasks/`, payload);
     return res.data;
   } catch (err) {
@@ -99,7 +103,7 @@ export async function updateTaskStatus(taskId, status) {
 }
 
 // -----------------------------
-// AI: generate story / description
+// AI: story / descriptions
 // -----------------------------
 export async function generateAiStory(taskId) {
   try {
@@ -110,8 +114,9 @@ export async function generateAiStory(taskId) {
   }
 }
 
+// ✅ Single task description
+// Backend: POST /tasks/{task_id}/ai-description
 export async function generateAiDescription(taskId) {
-  // Backend: POST /tasks/{task_id}/ai-description
   try {
     const res = await api.post(`/tasks/${taskId}/ai-description`);
     return res.data; // TaskRead
@@ -120,6 +125,53 @@ export async function generateAiDescription(taskId) {
   }
 }
 
+// ✅ Batch generate descriptions (project-wide)
+// Backend: POST /tasks/ai/generate-descriptions
+// Body: { project_id, task_ids?: [ids] | null, include_done?: boolean }
+export async function generateDescriptionsForProject(
+  projectId,
+  options = { task_ids: null, include_done: false }
+) {
+  try {
+    const payload = {
+      project_id: Number(projectId),
+      task_ids: Array.isArray(options.task_ids) ? options.task_ids : null,
+      include_done: Boolean(options.include_done),
+    };
+
+    const res = await api.post(`/tasks/ai/generate-descriptions`, payload);
+    return res.data; // list[TaskRead]
+  } catch (err) {
+    throw new Error(
+      extractError(err, "Failed to generate task descriptions for project")
+    );
+  }
+}
+
+// ✅ Create project summary
+// Backend: POST /tasks/ai/project-summary
+// Body: { project_id, task_ids?: [ids] | null, include_done?: boolean }
+export async function createProjectSummary(
+  projectId,
+  options = { task_ids: null, include_done: true }
+) {
+  try {
+    const payload = {
+      project_id: Number(projectId),
+      task_ids: Array.isArray(options.task_ids) ? options.task_ids : null,
+      include_done: Boolean(options.include_done),
+    };
+
+    const res = await api.post(`/tasks/ai/project-summary`, payload);
+    return res.data; // { project_id, summary, method }
+  } catch (err) {
+    throw new Error(extractError(err, "Failed to create project summary"));
+  }
+}
+
+// -----------------------------
+// AI: effort estimation
+// -----------------------------
 /**
  * Estimare automată a efortului (Story Points)
  * Backend: POST /tasks/{task_id}/estimate
@@ -135,17 +187,14 @@ export async function estimateTaskEffort(
     };
 
     const res = await api.post(`/tasks/${taskId}/estimate`, payload);
-    return res.data; // EffortEstimateResponse { story_points, confidence, ... }
+    return res.data; // EffortEstimateResponse
   } catch (err) {
     throw new Error(extractError(err, "Failed to estimate task effort"));
   }
 }
 
-// -----------------------------
-// ✅ AI: batch estimate (project-wide)
+// ✅ Batch estimate (project-wide)
 // Backend: POST /tasks/ai/estimate-effort
-// Body: { project_id, include_history, max_history_tasks }
-// -----------------------------
 export async function estimateEffortForProject(
   projectId,
   options = { include_history: true, max_history_tasks: 20 }

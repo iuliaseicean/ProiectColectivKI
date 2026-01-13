@@ -1,3 +1,7 @@
+# backend/schemas/task_schema.py
+
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Optional
 
@@ -25,6 +29,10 @@ def _norm_status(v: Optional[str], default: str = "todo") -> str:
     return s if s in _ALLOWED_STATUS else default
 
 
+# ============================
+# TASKS
+# ============================
+
 # ====== CREATE ======
 class TaskCreate(BaseModel):
     title: str = Field(..., min_length=1)
@@ -37,6 +45,7 @@ class TaskCreate(BaseModel):
 
     assignee: Optional[str] = None
     tags: Optional[str] = None
+    source: Optional[str] = Field(default="manual")
 
     @field_validator("title")
     @classmethod
@@ -65,6 +74,7 @@ class TaskUpdate(BaseModel):
     tags: Optional[str] = None
 
     ai_story: Optional[str] = None
+    source: Optional[str] = None
 
     @field_validator("title")
     @classmethod
@@ -108,14 +118,14 @@ class TaskRead(BaseModel):
     # 🔹 Frontend-friendly field (alias)
     story_points: Optional[int] = None
 
-    assignee: Optional[str]
-    tags: Optional[str]
+    assignee: Optional[str] = None
+    tags: Optional[str] = None
     source: str
 
-    ai_story: Optional[str]
+    ai_story: Optional[str] = None
     project_id: int
     created_at: datetime
-    updated_at: Optional[datetime]
+    updated_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -128,13 +138,17 @@ class TaskRead(BaseModel):
         if self.story_points is None and self.estimated_story_points is not None:
             self.story_points = self.estimated_story_points
 
-        # normalize status/levels (defensive)
+        # defensive normalization (in case DB contains unexpected values)
         self.status = _norm_status(self.status)
         self.priority = _norm_level(self.priority)
         self.complexity = _norm_level(self.complexity)
 
         return self
 
+
+# ============================
+# AI: EFFORT ESTIMATION
+# ============================
 
 class EffortEstimateResponse(BaseModel):
     task_id: int
@@ -148,3 +162,19 @@ class EffortEstimateResponse(BaseModel):
 class EffortEstimateRequest(BaseModel):
     include_history: bool = True
     max_history_tasks: int = Field(default=20, ge=0, le=100)
+
+
+# ============================
+# AI: PROJECT SUMMARY
+# ============================
+
+class ProjectSummaryRequest(BaseModel):
+    project_id: int
+    include_done: bool = True
+    max_tasks: int = Field(default=50, ge=0, le=200)
+
+
+class ProjectSummaryResponse(BaseModel):
+    project_id: int
+    summary: str
+    method: str
