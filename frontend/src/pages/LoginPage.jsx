@@ -82,7 +82,7 @@ export default function LoginPage({ onLoginSuccess }) {
         {loginSuccess && <p className="success">{loginSuccess}</p>}
 
         <div className="links">
-          <a href="#">Forgot password?</a>
+          <a href="/forgot-password">Forgot password?</a>
           <a href="/register">Don’t have an account? Register</a>
         </div>
       </div>

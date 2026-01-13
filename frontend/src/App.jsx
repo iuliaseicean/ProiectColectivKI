@@ -14,6 +14,10 @@ import ProjectsPage from "./pages/ProjectsPage";
 import ProjectDetailPage from "./pages/ProjectDetailPage";
 import ProfilePage from "./pages/ProfilePage"; // ✅ nou
 
+// ✅ ADD
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
+
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
 export default function App() {
@@ -80,6 +84,17 @@ export default function App() {
     <Router>
       <>
         <Routes>
+          {/* ✅ ADD: PUBLIC ROUTES (no token needed) */}
+          <Route
+            path="/forgot-password"
+            element={token ? <Navigate to="/projects" replace /> : <ForgotPasswordPage />}
+          />
+
+          <Route
+            path="/reset-password"
+            element={token ? <Navigate to="/projects" replace /> : <ResetPasswordPage />}
+          />
+
           {/* LOGIN */}
           <Route
             path="/login"
@@ -95,9 +110,7 @@ export default function App() {
           {/* REGISTER */}
           <Route
             path="/register"
-            element={
-              token ? <Navigate to="/projects" replace /> : <RegisterPage />
-            }
+            element={token ? <Navigate to="/projects" replace /> : <RegisterPage />}
           />
 
           {/* ROOT -> redirect */}
