@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 import logging
 import os
 from typing import Optional, List, Any, Dict
 
+from datetime import datetime  # (poate rămâne util în log / payload)
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Float, desc
 from sqlalchemy.orm import Session
+from sqlalchemy import desc
 
-from backend.database import Base
 from backend.auth.auth_router import get_db
-
 from backend.schemas.task_schema import (
     TaskCreate,
     TaskUpdate,
@@ -30,48 +29,13 @@ from backend.task.ai_service import (
     AIServiceInvalidResponseError,
 )
 
-from backend.project.project_router import Project  # must expose SQLAlchemy model Project
+# ✅ importă DOAR modelele din backend/models
+from backend.models.task import Task
+from backend.models.project import Project
 
 
 logger = logging.getLogger("backend.task")
 
-
-# =========================================================
-# SQLAlchemy MODEL
-# =========================================================
-class Task(Base):
-    __tablename__ = "tasks"
-
-    id = Column(Integer, primary_key=True, index=True)
-
-    title = Column(String, nullable=False)
-    description = Column(String, nullable=True)
-    status = Column(String, default="todo")
-
-    priority = Column(String, default="medium")
-    complexity = Column(String, default="medium")
-
-    estimated_story_points = Column(Integer, nullable=True)
-    ai_confidence = Column(Float, nullable=True)
-
-    assignee = Column(String, nullable=True)
-    tags = Column(String, nullable=True)
-
-    # method/source of last AI action or "manual"
-    source = Column(String, default="manual")
-
-    # optional free-form AI trace
-    ai_story = Column(String, nullable=True)
-
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
-
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-# =========================================================
-# ROUTER
-# =========================================================
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 
@@ -92,7 +56,6 @@ class EstimateEffortBatchRequest(BaseModel):
 
 class ProjectSummaryRequest(BaseModel):
     project_id: int
-    # optional: if you want to limit which tasks are included
     task_ids: Optional[List[int]] = None
     include_done: bool = True
 
@@ -335,7 +298,6 @@ def generate_descriptions_batch(req: GenerateDescriptionsRequest, db: Session = 
 
     q = db.query(Task).filter(Task.project_id == req.project_id)
 
-    # not provided vs provided empty list
     if req.task_ids is not None:
         if len(req.task_ids) == 0:
             raise HTTPException(status_code=400, detail="task_ids cannot be empty when provided")
@@ -546,9 +508,8 @@ def estimate_effort_all(req: EstimateEffortBatchRequest, db: Session = Depends(g
 
 
 # =========================================================
-# ✅ AI PROJECT SUMMARY
+# AI PROJECT SUMMARY
 # POST /tasks/ai/project-summary
-# body: { project_id, task_ids?, include_done? }
 # =========================================================
 @router.post("/ai/project-summary", response_model=ProjectSummaryResponse)
 def create_project_summary(req: ProjectSummaryRequest, db: Session = Depends(get_db)):

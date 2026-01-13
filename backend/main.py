@@ -42,15 +42,19 @@ from backend.auth.auth_router import router as auth_router  # noqa: E402
 from backend.project.project_router import router as project_router  # noqa: E402
 from backend.task.task_router import router as task_router  # noqa: E402
 
-# Creează tabelele (pentru SQLite dev). Dacă folosiți Alembic în mod strict,
-# puteți comenta linia de mai jos.
+# Creează tabelele (pentru SQLite dev). Dacă folosiți Alembic strict, comentați.
 Base.metadata.create_all(bind=engine)
 
 # includem router-ele
-app.include_router(auth_router, prefix="/auth", tags=["auth"])
-app.include_router(project_router, prefix="/projects", tags=["projects"])
-# task_router are deja prefix intern (ex: /tasks sau /projects/{id}/tasks în router)
-app.include_router(task_router, tags=["tasks"])
+# auth_router NU are prefix intern, deci îl setăm aici:
+app.include_router(auth_router, prefix="/auth")
+
+# project_router ARE deja prefix="/projects" în fișierul lui,
+# deci NU mai adăugăm prefix aici:
+app.include_router(project_router)
+
+# task_router are deja prefix="/tasks" intern:
+app.include_router(task_router)
 
 # ---------------- ROOT ----------------
 @app.get("/", tags=["health"])

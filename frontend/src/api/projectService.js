@@ -3,7 +3,8 @@
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
 function getAuthHeader() {
-  const token = localStorage.getItem("token");
+  const token =
+    localStorage.getItem("token") || localStorage.getItem("access_token");
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
@@ -36,11 +37,7 @@ async function handleJson(res, defaultError) {
 
   try {
     const data = await res.json();
-    errMsg =
-      data?.detail ||
-      data?.message ||
-      JSON.stringify(data) ||
-      defaultError;
+    errMsg = data?.detail || data?.message || JSON.stringify(data) || defaultError;
   } catch {
     const text = await res.text().catch(() => "");
     if (text) errMsg = text;
@@ -54,9 +51,7 @@ async function handleJson(res, defaultError) {
 // --------------------------------------------------
 export async function fetchProjects() {
   const res = await fetch(`${API_URL}/projects/`, {
-    headers: {
-      ...getAuthHeader(),
-    },
+    headers: { ...getAuthHeader() },
   });
 
   return handleJson(res, "Failed to load projects");
@@ -67,9 +62,7 @@ export async function fetchProjects() {
 // --------------------------------------------------
 export async function fetchProjectById(id) {
   const res = await fetch(`${API_URL}/projects/${id}`, {
-    headers: {
-      ...getAuthHeader(),
-    },
+    headers: { ...getAuthHeader() },
   });
 
   return handleJson(res, "Project not found");
@@ -130,12 +123,24 @@ export async function replaceProject(id, payload) {
 export async function deleteProject(id) {
   const res = await fetch(`${API_URL}/projects/${id}`, {
     method: "DELETE",
+    headers: { ...getAuthHeader() },
+  });
+
+  await handleJson(res, "Failed to delete project");
+  return true;
+}
+
+// --------------------------------------------------
+// ✅ AI: POST /projects/{id}/ai/summary
+// Returns: { project_id, summary, method }
+// --------------------------------------------------
+export async function createProjectSummary(projectId) {
+  const res = await fetch(`${API_URL}/projects/${projectId}/ai/summary`, {
+    method: "POST",
     headers: {
       ...getAuthHeader(),
     },
   });
 
-  // dacă e 204, handleJson întoarce null dar nu aruncă eroare
-  await handleJson(res, "Failed to delete project");
-  return true;
+  return handleJson(res, "Failed to create project summary");
 }

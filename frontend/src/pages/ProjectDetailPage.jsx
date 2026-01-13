@@ -1,7 +1,8 @@
 // frontend/src/pages/ProjectDetailPage.jsx
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { fetchProjectById, updateProject } from "../api/projectService";
+
+import { fetchProjectById, updateProject, createProjectSummary } from "../api/projectService";
 import {
   getTasksByProject,
   createTask,
@@ -10,7 +11,6 @@ import {
   updateTaskStatus,
   estimateTaskEffort,
   generateDescriptionsForProject,
-  createProjectSummary, // ✅ NEW
 } from "../api/taskService";
 
 import TaskModal from "../components/modals/TaskModal";
@@ -41,8 +41,7 @@ export default function ProjectDetailPage() {
   const [tasks, setTasks] = useState([]);
   const [tasksLoading, setTasksLoading] = useState(false);
   const [tasksError, setTasksError] = useState("");
-
-  const [sortBy, setSortBy] = useState("created_at"); // created_at | title | status
+  const [sortBy, setSortBy] = useState("created_at");
 
   // task modal
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
@@ -51,16 +50,14 @@ export default function ProjectDetailPage() {
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [taskToDelete, setTaskToDelete] = useState(null);
 
-  // -------------------------
-  // AI / Project-wide actions
-  // -------------------------
-  const [aiScope, setAiScope] = useState("open"); // "open" | "all" | "selected"
+  // AI state
+  const [aiScope, setAiScope] = useState("open"); // open | all | selected
   const [selectedTaskIds, setSelectedTaskIds] = useState(() => new Set());
   const [aiBusy, setAiBusy] = useState(false);
   const [aiMessage, setAiMessage] = useState("");
-  const [aiMessageType, setAiMessageType] = useState("error"); // "error" | "success" | "info"
+  const [aiMessageType, setAiMessageType] = useState("error"); // error | success | info
 
-  // ✅ Project summary UI
+  // Summary UI
   const [projectSummary, setProjectSummary] = useState("");
 
   function setAiFeedback(type, msg) {
@@ -74,13 +71,11 @@ export default function ProjectDetailPage() {
   useEffect(() => {
     let cancelled = false;
 
-    // reset modals
     setIsTaskModalOpen(false);
     setEditingTask(null);
     setIsDeleteOpen(false);
     setTaskToDelete(null);
 
-    // reset AI UI on project change
     setAiScope("open");
     setSelectedTaskIds(new Set());
     setAiMessage("");
@@ -142,6 +137,7 @@ export default function ProjectDetailPage() {
 
       setTasks(normalized);
 
+      // keep only existing IDs in selection
       setSelectedTaskIds((prev) => {
         const next = new Set();
         const valid = new Set(normalized.map((t) => t.id));
@@ -169,7 +165,7 @@ export default function ProjectDetailPage() {
   }, [projectId]);
 
   // --------------------------------------------------
-  // Handlers edit project
+  // Project edit handlers
   // --------------------------------------------------
   function startEdit() {
     if (!project) return;
@@ -264,14 +260,7 @@ export default function ProjectDetailPage() {
     try {
       setTasksError("");
 
-      const payload = {
-        title,
-        description,
-        priority,
-        complexity,
-        assignee,
-        tags,
-      };
+      const payload = { title, description, priority, complexity, assignee, tags };
 
       if (editingTask) {
         await updateTask(editingTask.id, payload);
@@ -303,12 +292,7 @@ export default function ProjectDetailPage() {
       await loadTasks();
     } catch (err) {
       console.error(err);
-      setTasksError(
-        err?.response?.data?.detail ||
-          err?.response?.data?.message ||
-          err?.message ||
-          "Failed to update task status"
-      );
+      setTasksError(err?.message || "Failed to update task status");
     }
   }
 
@@ -329,17 +313,12 @@ export default function ProjectDetailPage() {
       await loadTasks();
     } catch (err) {
       console.error(err);
-      setTasksError(
-        err?.response?.data?.detail ||
-          err?.response?.data?.message ||
-          err?.message ||
-          "Failed to delete task"
-      );
+      setTasksError(err?.message || "Failed to delete task");
     }
   }
 
   // --------------------------------------------------
-  // ✅ Project-wide AI helpers
+  // AI helpers
   // --------------------------------------------------
   function getScopedTasks() {
     if (aiScope === "all") return tasks;
@@ -349,7 +328,6 @@ export default function ProjectDetailPage() {
       return tasks.filter((t) => ids.has(t.id));
     }
 
-    // default open
     return tasks.filter((t) => (t.status || "todo") !== "done");
   }
 
@@ -377,19 +355,20 @@ export default function ProjectDetailPage() {
     setSelectedTaskIds(new Set());
     setAiScope("open");
     setAiMessage("");
+    setProjectSummary("");
   }
 
+  const scopeTasks = getScopedTasks();
+  const scopeCount = scopeTasks.length;
+
   // --------------------------------------------------
-  // ✅ AI action: Estimate story points (project-wide)
+  // AI: Estimate story points
   // --------------------------------------------------
   async function handleEstimateStoryPoints() {
-    const scopeTasks = getScopedTasks();
-
     if (!scopeTasks.length) {
       setAiFeedback("error", "No tasks in the selected scope.");
       return;
     }
-
     if (aiScope === "selected" && selectedTaskIds.size === 0) {
       setAiFeedback("error", "Scope is 'Selected' but no tasks are selected.");
       return;
@@ -413,11 +392,7 @@ export default function ProjectDetailPage() {
                 ? result.story_points
                 : null;
 
-            return {
-              ...t,
-              story_points: sp,
-              estimated_story_points: sp,
-            };
+            return { ...t, story_points: sp, estimated_story_points: sp };
           } catch {
             return t;
           }
@@ -435,16 +410,13 @@ export default function ProjectDetailPage() {
   }
 
   // --------------------------------------------------
-  // ✅ AI action: Generate task descriptions (batch)
+  // AI: Generate descriptions (batch)
   // --------------------------------------------------
   async function handleGenerateDescriptions() {
-    const scopeTasks = getScopedTasks();
-
     if (!scopeTasks.length) {
       setAiFeedback("error", "No tasks in the selected scope.");
       return;
     }
-
     if (aiScope === "selected" && selectedTaskIds.size === 0) {
       setAiFeedback("error", "Scope is 'Selected' but no tasks are selected.");
       return;
@@ -493,13 +465,9 @@ export default function ProjectDetailPage() {
   }
 
   // --------------------------------------------------
-  // ✅ AI action: Create project summary
-  // Calls backend POST /tasks/ai/project-summary
+  // AI: Create project summary
   // --------------------------------------------------
   async function handleCreateProjectSummary() {
-    const scopeTasks = getScopedTasks();
-
-    // optional: require at least something in scope
     if (!scopeTasks.length) {
       setAiFeedback("error", "No tasks in the selected scope.");
       return;
@@ -511,17 +479,11 @@ export default function ProjectDetailPage() {
 
     setAiBusy(true);
     setAiMessage("");
+    setProjectSummary("");
 
     try {
-      const taskIds = aiScope === "selected" ? scopeTasks.map((t) => t.id) : null;
-      const includeDone = aiScope === "all";
-
-      const out = await createProjectSummary(projectId, {
-        task_ids: taskIds,
-        include_done: includeDone,
-      });
-
-      const summaryText = out?.summary || "";
+      const out = await createProjectSummary(projectId);
+      const summaryText = out?.summary || out?.data?.summary || "";
       setProjectSummary(summaryText);
       setAiFeedback("success", "Project summary generated.");
     } catch (err) {
@@ -532,25 +494,32 @@ export default function ProjectDetailPage() {
     }
   }
 
+  async function handleCopySummary() {
+    try {
+      await navigator.clipboard.writeText(projectSummary);
+      setAiFeedback("success", "Summary copied to clipboard.");
+    } catch {
+      setAiFeedback("error", "Copy failed. Select the text and copy manually.");
+    }
+  }
+
   // --------------------------------------------------
   // Render
   // --------------------------------------------------
-  if (loading) {
-    return <div className="project-detail-layout">Loading project...</div>;
-  }
+  if (loading) return <div className="project-detail-layout">Loading project...</div>;
 
   if (loadError || !project) {
     return (
       <div className="project-detail-layout">
         <div className="project-detail-error">
           <p>{loadError || "Project not found"}</p>
-          <button onClick={() => navigate("/projects")}>Back to projects</button>
+          <button className="btn" onClick={() => navigate("/projects")}>
+            Back to projects
+          </button>
         </div>
       </div>
     );
   }
-
-  const scopeCount = getScopedTasks().length;
 
   return (
     <div className="project-detail-layout">
@@ -561,19 +530,18 @@ export default function ProjectDetailPage() {
       </header>
 
       <main className="project-detail-main">
-        {/* HEADER + INFO */}
+        {/* HEADER */}
         <section className="project-detail-header">
           <div className="project-detail-header-row">
             <div>
               <h1>{project.name}</h1>
             </div>
-            <div>
-              {!isEditing && (
-                <button className="project-detail-edit-btn" onClick={startEdit}>
-                  ✏ Edit details
-                </button>
-              )}
-            </div>
+
+            {!isEditing && (
+              <button className="project-detail-edit-btn" onClick={startEdit}>
+                ✏ Edit details
+              </button>
+            )}
           </div>
 
           {isEditing ? (
@@ -582,9 +550,7 @@ export default function ProjectDetailPage() {
                 Description
                 <textarea
                   value={editForm.description}
-                  onChange={(e) =>
-                    setEditForm((f) => ({ ...f, description: e.target.value }))
-                  }
+                  onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
                 />
               </label>
 
@@ -593,9 +559,7 @@ export default function ProjectDetailPage() {
                 <input
                   type="text"
                   value={editForm.tech_stack}
-                  onChange={(e) =>
-                    setEditForm((f) => ({ ...f, tech_stack: e.target.value }))
-                  }
+                  onChange={(e) => setEditForm((f) => ({ ...f, tech_stack: e.target.value }))}
                   placeholder="React, FastAPI, PostgreSQL"
                 />
               </label>
@@ -605,9 +569,7 @@ export default function ProjectDetailPage() {
                 <input
                   type="text"
                   value={editForm.infrastructure}
-                  onChange={(e) =>
-                    setEditForm((f) => ({ ...f, infrastructure: e.target.value }))
-                  }
+                  onChange={(e) => setEditForm((f) => ({ ...f, infrastructure: e.target.value }))}
                   placeholder="Docker + Render"
                 />
               </label>
@@ -618,26 +580,26 @@ export default function ProjectDetailPage() {
                   type="number"
                   min="0"
                   value={editForm.members_count}
-                  onChange={(e) =>
-                    setEditForm((f) => ({ ...f, members_count: e.target.value }))
-                  }
+                  onChange={(e) => setEditForm((f) => ({ ...f, members_count: e.target.value }))}
                 />
               </label>
 
               {saveError && <div className="project-detail-save-error">{saveError}</div>}
 
               <div className="project-detail-edit-actions">
-                <button type="button" onClick={cancelEdit} disabled={saving}>
+                <button className="btn btn-ghost" type="button" onClick={cancelEdit} disabled={saving}>
                   Cancel
                 </button>
-                <button type="submit" disabled={saving}>
+                <button className="btn btn-primary" type="submit" disabled={saving}>
                   {saving ? "Saving..." : "Save changes"}
                 </button>
               </div>
             </form>
           ) : (
             <>
-              <p className="project-detail-description">{project.description || "No description yet."}</p>
+              <p className="project-detail-description">
+                {project.description || "No description yet."}
+              </p>
 
               <div className="project-detail-info">
                 <div>
@@ -665,16 +627,12 @@ export default function ProjectDetailPage() {
 
         {/* COLUMNS */}
         <section className="project-detail-columns">
-          {/* Tasks column */}
+          {/* Tasks */}
           <div className="project-detail-column">
             <h2>Tasks</h2>
-            <p className="project-detail-subtitle">
-              Define new tasks with title and short description. Later they can be sent to the AI model
-              for better descriptions and estimations.
-            </p>
 
             <div className="project-detail-tasks-toolbar">
-              <button className="project-detail-primary-btn" onClick={openNewTaskModal}>
+              <button className="btn btn-primary" onClick={openNewTaskModal}>
                 + New Task
               </button>
 
@@ -704,7 +662,9 @@ export default function ProjectDetailPage() {
                     <div className="project-detail-task-main">
                       <div>
                         <strong>{t.title}</strong>
-                        {t.description && <span className="project-detail-task-desc"> — {t.description}</span>}
+                        {t.description && (
+                          <span className="project-detail-task-desc"> — {t.description}</span>
+                        )}
 
                         <div className="project-detail-task-meta">
                           <span className={`meta-chip meta-${t.priority || "medium"}`}>
@@ -715,14 +675,15 @@ export default function ProjectDetailPage() {
                           </span>
                           <span className="meta-chip">Assignee: {t.assignee || "—"}</span>
                           <span className="meta-chip">Tags: {t.tags || "—"}</span>
-
                           {t.story_points !== undefined && t.story_points !== null && (
                             <span className="meta-chip">SP: {t.story_points}</span>
                           )}
                         </div>
                       </div>
 
-                      <span className={`project-detail-task-status badge-${t.status}`}>{t.status}</span>
+                      <span className={`project-detail-task-status badge-${t.status}`}>
+                        {t.status}
+                      </span>
                     </div>
 
                     <div className="project-detail-task-actions">
@@ -735,8 +696,12 @@ export default function ProjectDetailPage() {
                         <option value="done">Done</option>
                       </select>
 
-                      <button onClick={() => openEditTask(t)}>Edit</button>
-                      <button onClick={() => askDeleteTask(t)}>Delete</button>
+                      <button className="btn" onClick={() => openEditTask(t)}>
+                        Edit
+                      </button>
+                      <button className="btn btn-danger" onClick={() => askDeleteTask(t)}>
+                        Delete
+                      </button>
                     </div>
                   </li>
                 ))}
@@ -744,151 +709,117 @@ export default function ProjectDetailPage() {
             )}
           </div>
 
-          {/* AI Assistant column */}
+          {/* AI */}
           <div className="project-detail-column">
             <h2>AI Assistant</h2>
-            <p className="project-detail-subtitle">Projektweite KI-Aktionen: run AI on tasks in this project.</p>
+            <p className="project-detail-subtitle">
+              Project-wide AI actions: run AI on tasks in this project.
+            </p>
 
-            {/* Scope */}
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: 14, color: "#555" }}>Scope:</span>
-              <select
-                value={aiScope}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setAiScope(v);
-                  setAiMessage("");
-                  setProjectSummary("");
-                  if (v !== "selected") setSelectedTaskIds(new Set());
-                }}
-                disabled={aiBusy}
-              >
-                <option value="open">Open tasks (TODO / IN_PROGRESS)</option>
-                <option value="all">All tasks</option>
-                <option value="selected">Selected tasks</option>
-              </select>
+            <div className="ai-panel">
+              <div className="ai-scope-row">
+                <label>Scope</label>
 
-              <span style={{ fontSize: 12, color: "#777" }}>({scopeCount} tasks)</span>
-            </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <select
+                    value={aiScope}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setAiScope(v);
+                      setAiMessage("");
+                      setProjectSummary("");
+                      if (v !== "selected") setSelectedTaskIds(new Set());
+                    }}
+                    disabled={aiBusy}
+                  >
+                    <option value="open">Open tasks (TODO / IN_PROGRESS)</option>
+                    <option value="all">All tasks</option>
+                    <option value="selected">Selected tasks</option>
+                  </select>
 
-            {/* Selection controls */}
-            <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
-              <button
-                type="button"
-                onClick={selectAllVisible}
-                disabled={aiBusy || tasks.length === 0}
-                style={{ padding: "8px 12px", borderRadius: 10 }}
-              >
-                Select visible
-              </button>
-              <button
-                type="button"
-                onClick={clearSelection}
-                disabled={aiBusy}
-                style={{ padding: "8px 12px", borderRadius: 10 }}
-              >
-                Clear
-              </button>
-            </div>
-
-            {/* Selected list */}
-            {(aiScope === "selected" || selectedTaskIds.size > 0) && (
-              <div
-                style={{
-                  marginTop: 12,
-                  padding: 12,
-                  borderRadius: 14,
-                  background: "rgba(255,255,255,0.5)",
-                }}
-              >
-                <div style={{ fontSize: 12, color: "#666", marginBottom: 8 }}>
-                  Click tasks below to (un)select:
-                </div>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {sortedTasks.map((t) => (
-                    <label
-                      key={t.id}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                        cursor: "pointer",
-                        userSelect: "none",
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedTaskIds.has(t.id)}
-                        onChange={() => toggleSelectedTask(t.id)}
-                        disabled={aiBusy}
-                      />
-                      <span style={{ fontSize: 14 }}>
-                        {t.title} <span style={{ color: "#888" }}>({t.status})</span>
-                      </span>
-                    </label>
-                  ))}
+                  <span style={{ fontSize: 12, color: "#666", fontWeight: 800 }}>
+                    {scopeCount} tasks
+                  </span>
                 </div>
               </div>
-            )}
 
-            {/* Feedback */}
-            {aiMessage && (
-              <div
-                style={{
-                  marginTop: 12,
-                  padding: "10px 12px",
-                  borderRadius: 12,
-                  background:
-                    aiMessageType === "success"
-                      ? "rgba(120, 220, 160, 0.18)"
-                      : aiMessageType === "info"
-                      ? "rgba(120, 170, 230, 0.18)"
-                      : "rgba(240, 120, 120, 0.18)",
-                  color:
-                    aiMessageType === "success"
-                      ? "#1b5e20"
-                      : aiMessageType === "info"
-                      ? "#0d47a1"
-                      : "#b71c1c",
-                  fontSize: 14,
-                }}
-              >
-                {aiMessage}
+              <div style={{ display: "flex", gap: 10 }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={selectAllVisible}
+                  disabled={aiBusy || tasks.length === 0}
+                >
+                  Select visible
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={clearSelection}
+                  disabled={aiBusy}
+                >
+                  Clear
+                </button>
               </div>
-            )}
 
-            {/* Actions */}
-            <div className="project-detail-ai-buttons" style={{ marginTop: 12 }}>
-              <button onClick={handleGenerateDescriptions} disabled={aiBusy}>
-                {aiBusy ? "Working..." : "Generate task descriptions"}
-              </button>
+              {(aiScope === "selected" || selectedTaskIds.size > 0) && (
+                <div className="ai-selection">
+                  <div className="ai-selection-head">
+                    <div className="hint">Click tasks below to (un)select:</div>
+                    <div className="hint" style={{ fontWeight: 800 }}>
+                      Selected: {selectedTaskIds.size}
+                    </div>
+                  </div>
 
-              <button onClick={handleEstimateStoryPoints} disabled={aiBusy}>
-                {aiBusy ? "Working..." : "Estimate story points"}
-              </button>
+                  <div className="ai-task-checkboxes">
+                    {sortedTasks.map((t) => (
+                      <label key={t.id}>
+                        <input
+                          type="checkbox"
+                          checked={selectedTaskIds.has(t.id)}
+                          onChange={() => toggleSelectedTask(t.id)}
+                          disabled={aiBusy}
+                        />
+                        <span style={{ fontSize: 14, fontWeight: 800 }}>
+                          {t.title}{" "}
+                          <span style={{ color: "#777", fontWeight: 700 }}>({t.status})</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
 
-              <button onClick={handleCreateProjectSummary} disabled={aiBusy}>
-                {aiBusy ? "Working..." : "Create project summary"}
-              </button>
+              {aiMessage && <div className={`ai-feedback ${aiMessageType}`}>{aiMessage}</div>}
+
+              <div className="ai-actions">
+                <button className="btn btn-primary" onClick={handleGenerateDescriptions} disabled={aiBusy}>
+                  {aiBusy ? "Working..." : "Generate task descriptions"}
+                </button>
+
+                <button className="btn" onClick={handleEstimateStoryPoints} disabled={aiBusy}>
+                  {aiBusy ? "Working..." : "Estimate story points"}
+                </button>
+
+                <button className="btn" onClick={handleCreateProjectSummary} disabled={aiBusy}>
+                  {aiBusy ? "Working..." : "Create project summary"}
+                </button>
+              </div>
+
+              {projectSummary && (
+                <div className="ai-summary">
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                    <strong>Project summary</strong>
+                    <button className="btn btn-ghost" onClick={handleCopySummary} disabled={aiBusy}>
+                      Copy
+                    </button>
+                  </div>
+
+                  <div style={{ marginTop: 10 }}>{projectSummary}</div>
+                </div>
+              )}
             </div>
-
-            {/* ✅ Summary output */}
-            {projectSummary && (
-              <div
-                style={{
-                  marginTop: 12,
-                  padding: 12,
-                  borderRadius: 14,
-                  background: "rgba(255,255,255,0.6)",
-                  whiteSpace: "pre-wrap",
-                  fontSize: 14,
-                  lineHeight: 1.4,
-                }}
-              >
-                {projectSummary}
-              </div>
-            )}
           </div>
         </section>
       </main>
