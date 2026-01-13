@@ -1,12 +1,12 @@
 // frontend/src/pages/ProjectsPage.jsx
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  fetchProjects,
-  createProject,
-  deleteProject,
-} from "../api/projectService";
+
+import { fetchProjects, createProject, deleteProject } from "../api/projectService";
+
 import ProjectCard from "../components/ProjectCard";
+import NotificationsBell from "../components/notifications/NotificationsBell";
+
 import "./ProjectsPage.css";
 
 export default function ProjectsPage({ user /*, onLogout */ }) {
@@ -27,17 +27,16 @@ export default function ProjectsPage({ user /*, onLogout */ }) {
   const [createError, setCreateError] = useState("");
 
   // Nume / email afișat lângă iconița de profil
-  const displayName =
-    user?.username || user?.name || user?.email || "Profile";
+  const displayName = user?.username || user?.name || user?.email || "Profile";
 
   async function loadProjects() {
     try {
       setLoading(true);
       setLoadError("");
       const data = await fetchProjects();
-      setProjects(data);
+      setProjects(Array.isArray(data) ? data : []);
     } catch (err) {
-      setLoadError(err.message || "Failed to load projects");
+      setLoadError(err?.message || "Failed to load projects");
     } finally {
       setLoading(false);
     }
@@ -89,22 +88,20 @@ export default function ProjectsPage({ user /*, onLogout */ }) {
       setShowCreate(false);
       setForm({ name: "", description: "", start_date: "" });
     } catch (err) {
-      setCreateError(err.message || "Failed to create project");
+      setCreateError(err?.message || "Failed to create project");
     } finally {
       setSaving(false);
     }
   }
 
   async function handleDelete(projectId) {
-    if (!window.confirm("Are you sure you want to delete this project?")) {
-      return;
-    }
+    if (!window.confirm("Are you sure you want to delete this project?")) return;
 
     try {
       await deleteProject(projectId);
       setProjects((prev) => prev.filter((p) => p.id !== projectId));
     } catch (err) {
-      alert(err.message || "Failed to delete project");
+      alert(err?.message || "Failed to delete project");
     }
   }
 
@@ -118,15 +115,16 @@ export default function ProjectsPage({ user /*, onLogout */ }) {
         >
           Smart Project Management
         </div>
+
         <div className="projects-topbar__right">
-          <button className="projects-topbar__icon-btn">
-            🔔 Notifications
-          </button>
+          {/* Notifications dropdown */}
+          <NotificationsBell userId={user?.id} />
 
           {/* Profil – merge în pagina /profile */}
           <button
             className="projects-topbar__icon-btn"
             onClick={() => navigate("/profile")}
+            type="button"
           >
             👤 {displayName}
           </button>
@@ -137,10 +135,11 @@ export default function ProjectsPage({ user /*, onLogout */ }) {
         <section className="projects-header">
           <h1>Your Projects</h1>
           <p>
-            Manage and track your project progress. Store technical details and
-            use AI to generate better tasks.
+            Manage and track your project progress. Store technical details and use AI to generate
+            better tasks.
           </p>
-          <button className="projects-new-btn" onClick={openCreateModal}>
+
+          <button className="projects-new-btn" onClick={openCreateModal} type="button">
             + New Project
           </button>
         </section>
@@ -148,23 +147,16 @@ export default function ProjectsPage({ user /*, onLogout */ }) {
         <section className="projects-grid">
           {loading && <div className="projects-empty">Loading projects...</div>}
 
-          {loadError && !loading && (
-            <div className="projects-empty error">{loadError}</div>
-          )}
+          {loadError && !loading && <div className="projects-empty error">{loadError}</div>}
 
           {!loading && !loadError && projects.length === 0 && (
             <div className="projects-empty">
-              You don't have any projects yet. Click{" "}
-              <b>+ New Project</b> to create one.
+              You don't have any projects yet. Click <b>+ New Project</b> to create one.
             </div>
           )}
 
           {projects.map((project) => (
-            <ProjectCard
-              key={project.id}
-              project={project}
-              onDelete={handleDelete}
-            />
+            <ProjectCard key={project.id} project={project} onDelete={handleDelete} />
           ))}
         </section>
       </main>
@@ -172,10 +164,7 @@ export default function ProjectsPage({ user /*, onLogout */ }) {
       {/* CREATE MODAL */}
       {showCreate && (
         <div className="projects-modal-backdrop" onClick={closeCreateModal}>
-          <div
-            className="projects-modal"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="projects-modal" onClick={(e) => e.stopPropagation()}>
             <h2>Create New Project</h2>
 
             <form onSubmit={handleCreateSubmit} className="projects-modal-form">
@@ -184,9 +173,7 @@ export default function ProjectsPage({ user /*, onLogout */ }) {
                 <input
                   type="text"
                   value={form.name}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, name: e.target.value }))
-                  }
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                   required
                 />
               </label>
@@ -195,9 +182,7 @@ export default function ProjectsPage({ user /*, onLogout */ }) {
                 Description
                 <textarea
                   value={form.description}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, description: e.target.value }))
-                  }
+                  onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
                 />
               </label>
 
@@ -206,23 +191,15 @@ export default function ProjectsPage({ user /*, onLogout */ }) {
                 <input
                   type="date"
                   value={form.start_date}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, start_date: e.target.value }))
-                  }
+                  onChange={(e) => setForm((f) => ({ ...f, start_date: e.target.value }))}
                   required
                 />
               </label>
 
-              {createError && (
-                <div className="projects-modal-error">{createError}</div>
-              )}
+              {createError && <div className="projects-modal-error">{createError}</div>}
 
               <div className="projects-modal-actions">
-                <button
-                  type="button"
-                  onClick={closeCreateModal}
-                  disabled={saving}
-                >
+                <button type="button" onClick={closeCreateModal} disabled={saving}>
                   Cancel
                 </button>
                 <button type="submit" disabled={saving}>

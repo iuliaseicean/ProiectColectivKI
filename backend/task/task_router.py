@@ -6,7 +6,7 @@ import logging
 import os
 from typing import Optional, List, Any, Dict
 
-from datetime import datetime  # (poate rămâne util în log / payload)
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -32,6 +32,9 @@ from backend.task.ai_service import (
 # ✅ importă DOAR modelele din backend/models
 from backend.models.task import Task
 from backend.models.project import Project
+
+# ✅ Notifications (NEW)
+from backend.models.notification import Notification
 
 
 logger = logging.getLogger("backend.task")
@@ -133,6 +136,36 @@ def _task_to_summary_item(t: Task) -> Dict[str, Any]:
 
 
 # =========================================================
+# NOTIFICATIONS (NEW)
+# =========================================================
+def _notify(
+    db: Session,
+    *,
+    ntype: str,
+    message: str,
+    project_id: Optional[int] = None,
+    task_id: Optional[int] = None,
+) -> None:
+    """
+    Creează o notificare simplă.
+    - nu dă commit separat (se bazează pe commit-ul endpoint-ului)
+    """
+    try:
+        n = Notification(
+            type=ntype,
+            message=message,
+            is_read=False,
+            created_at=datetime.utcnow(),
+            project_id=project_id,
+            task_id=task_id,
+        )
+        db.add(n)
+    except Exception:
+        # dacă modelul diferă, nu vrem să crape endpoint-ul
+        logger.exception("notification_create_failed", extra={"type": ntype, "project_id": project_id, "task_id": task_id})
+
+
+# =========================================================
 # CRUD TASKS
 # =========================================================
 @router.post("/", response_model=TaskRead)
@@ -148,8 +181,33 @@ def create_task(data: TaskCreate, db: Session = Depends(get_db)):
         source=getattr(data, "source", "manual"),
     )
     db.add(task)
+
+    # ✅ notify
+    _notify(
+        db,
+        ntype="task_created",
+        message=f"Task created: {data.title}",
+        project_id=data.project_id,
+    )
+
     db.commit()
     db.refresh(task)
+
+    # după refresh avem task_id real
+    try:
+        # actualizează task_id în notificare (opțional; dacă vrei strict)
+        # simplu: mai adăugăm o notificare cu task_id
+        _notify(
+            db,
+            ntype="task_created",
+            message=f"Task created: {task.title}",
+            project_id=task.project_id,
+            task_id=task.id,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+
     return task
 
 
@@ -177,6 +235,9 @@ def update_task(task_id: int, data: TaskUpdate, db: Session = Depends(get_db)):
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
+    old_title = task.title
+    old_status = task.status
+
     if data.title is not None:
         task.title = data.title
     if data.description is not None:
@@ -194,6 +255,23 @@ def update_task(task_id: int, data: TaskUpdate, db: Session = Depends(get_db)):
     if data.ai_story is not None:
         task.ai_story = data.ai_story
 
+    # ✅ notify (update)
+    changed_bits = []
+    if data.title is not None and data.title != old_title:
+        changed_bits.append("title")
+    if data.status is not None and data.status != old_status:
+        changed_bits.append("status")
+    if data.description is not None:
+        changed_bits.append("description")
+
+    _notify(
+        db,
+        ntype="task_updated",
+        message=f"Task updated ({', '.join(changed_bits) if changed_bits else 'fields'}): {task.title}",
+        project_id=task.project_id,
+        task_id=task.id,
+    )
+
     db.commit()
     db.refresh(task)
     return task
@@ -204,6 +282,19 @@ def delete_task(task_id: int, db: Session = Depends(get_db)):
     task = db.query(Task).get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+
+    title = task.title
+    project_id = task.project_id
+
+    # ✅ notify before delete
+    _notify(
+        db,
+        ntype="task_deleted",
+        message=f"Task deleted: {title}",
+        project_id=project_id,
+        task_id=task_id,
+    )
+
     db.delete(task)
     db.commit()
     return
@@ -214,7 +305,19 @@ def update_status(task_id: int, status: str, db: Session = Depends(get_db)):
     task = db.query(Task).get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+
+    old = (task.status or "").lower()
     task.status = status
+
+    # ✅ notify status change
+    _notify(
+        db,
+        ntype="task_status_changed",
+        message=f"Task status: {task.title} ({old} → {status})",
+        project_id=task.project_id,
+        task_id=task.id,
+    )
+
     db.commit()
     db.refresh(task)
     return task
@@ -231,6 +334,16 @@ def generate_ai_story(task_id: int, db: Session = Depends(get_db)):
 
     ai_text = f"AI-generated story for task '{task.title}':\n\nBased on previous tasks..."
     task.ai_story = ai_text
+
+    # ✅ notify
+    _notify(
+        db,
+        ntype="ai_story_generated",
+        message=f"AI story generated for: {task.title}",
+        project_id=task.project_id,
+        task_id=task.id,
+    )
+
     db.commit()
     db.refresh(task)
     return task
@@ -282,6 +395,15 @@ def generate_ai_description(task_id: int, db: Session = Depends(get_db)):
     task.description = generated
     task.ai_story = (task.ai_story or "") + "\n\n[AI description generated]"
     task.source = f"ai_description:{method}"
+
+    # ✅ notify
+    _notify(
+        db,
+        ntype="ai_description_generated",
+        message=f"AI description generated for: {task.title}",
+        project_id=task.project_id,
+        task_id=task.id,
+    )
 
     db.commit()
     db.refresh(task)
@@ -344,6 +466,15 @@ def generate_descriptions_batch(req: GenerateDescriptionsRequest, db: Session = 
             task.ai_story = (task.ai_story or "") + "\n\n[AI description generated]"
             task.source = f"ai_description:{method}"
 
+            # ✅ notify per task
+            _notify(
+                db,
+                ntype="ai_description_generated",
+                message=f"AI description generated for: {task.title}",
+                project_id=task.project_id,
+                task_id=task.id,
+            )
+
             db.add(task)
             db.commit()
             db.refresh(task)
@@ -354,6 +485,18 @@ def generate_descriptions_batch(req: GenerateDescriptionsRequest, db: Session = 
 
     if not updated:
         raise HTTPException(status_code=502, detail="AI failed to generate descriptions for all tasks")
+
+    # ✅ notify summary batch
+    _notify(
+        db,
+        ntype="ai_batch_done",
+        message=f"AI generated descriptions for {len(updated)} task(s).",
+        project_id=req.project_id,
+    )
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
 
     return updated
 
@@ -419,6 +562,16 @@ def estimate_effort(
         task.estimated_story_points = int(out["story_points"])
         task.ai_confidence = float(out.get("confidence", 0.0))
         task.source = str(out.get("method", "unknown"))
+
+        # ✅ notify
+        _notify(
+            db,
+            ntype="ai_estimate_done",
+            message=f"AI estimated story points for: {task.title} (SP={task.estimated_story_points})",
+            project_id=task.project_id,
+            task_id=task.id,
+        )
+
         db.commit()
         db.refresh(task)
     except Exception:
@@ -455,6 +608,8 @@ def estimate_effort_all(req: EstimateEffortBatchRequest, db: Session = Depends(g
     responses: list[EffortEstimateResponse] = []
     ai_service = AIService()
 
+    updated_count = 0
+
     for task in tasks:
         if (task.status or "").lower() == "done":
             continue
@@ -487,8 +642,19 @@ def estimate_effort_all(req: EstimateEffortBatchRequest, db: Session = Depends(g
             task.ai_confidence = float(out.get("confidence", 0.0))
             task.source = str(out.get("method", "unknown"))
 
+            # ✅ notify per task
+            _notify(
+                db,
+                ntype="ai_estimate_done",
+                message=f"AI estimated: {task.title} (SP={task.estimated_story_points})",
+                project_id=task.project_id,
+                task_id=task.id,
+            )
+
             db.commit()
             db.refresh(task)
+
+            updated_count += 1
 
             responses.append(
                 EffortEstimateResponse(
@@ -503,6 +669,18 @@ def estimate_effort_all(req: EstimateEffortBatchRequest, db: Session = Depends(g
         except Exception:
             db.rollback()
             continue
+
+    # ✅ notify summary batch
+    _notify(
+        db,
+        ntype="ai_batch_done",
+        message=f"AI effort estimation completed for {updated_count} task(s).",
+        project_id=req.project_id,
+    )
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
 
     return responses
 
@@ -558,6 +736,18 @@ def create_project_summary(req: ProjectSummaryRequest, db: Session = Depends(get
         )
         summary_text = _fallback_placeholder_project_summary(payload)
         method = "placeholder"
+
+    # ✅ notify
+    _notify(
+        db,
+        ntype="ai_project_summary",
+        message=f"AI project summary generated for project_id={req.project_id}",
+        project_id=req.project_id,
+    )
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
 
     return ProjectSummaryResponse(
         project_id=req.project_id,

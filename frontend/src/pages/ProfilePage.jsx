@@ -1,7 +1,10 @@
 // frontend/src/pages/ProfilePage.jsx
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+
 import { fetchProjects } from "../api/projectService";
+import NotificationsBell from "../components/notifications/NotificationsBell";
+
 import "./ProfilePage.css";
 
 const PREFS_KEY_PREFIX = "pcai_profile_prefs_";
@@ -28,8 +31,7 @@ export default function ProfilePage({ user, onLogout }) {
   const navigate = useNavigate();
 
   // ------------ USER DISPLAY ------------
-  const displayName =
-    user?.username || user?.name || user?.email || "Your account";
+  const displayName = user?.username || user?.name || user?.email || "Your account";
   const email = user?.email || "user@example.com";
   const avatarLetter = displayName.charAt(0).toUpperCase();
 
@@ -55,9 +57,9 @@ export default function ProfilePage({ user, onLogout }) {
     (async () => {
       try {
         const projects = await fetchProjects();
-        setProjectsCount(projects.length);
+        setProjectsCount(Array.isArray(projects) ? projects.length : 0);
       } catch (err) {
-        setProjectsError(err.message || "Failed to load projects.");
+        setProjectsError(err?.message || "Failed to load projects.");
       }
     })();
   }, []);
@@ -69,8 +71,7 @@ export default function ProfilePage({ user, onLogout }) {
     if (stored) {
       if (stored.preferredStack) setPreferredStack(stored.preferredStack);
       if (stored.joinedAt) setJoinedAt(stored.joinedAt);
-      if (typeof stored.aiSuggestions === "boolean")
-        setAiSuggestions(stored.aiSuggestions);
+      if (typeof stored.aiSuggestions === "boolean") setAiSuggestions(stored.aiSuggestions);
       if (typeof stored.emailNotifications === "boolean")
         setEmailNotifications(stored.emailNotifications);
     } else {
@@ -90,12 +91,7 @@ export default function ProfilePage({ user, onLogout }) {
 
   // De fiecare dată când se schimbă preferințele – salvăm
   useEffect(() => {
-    const prefs = {
-      preferredStack,
-      aiSuggestions,
-      emailNotifications,
-      joinedAt,
-    };
+    const prefs = { preferredStack, aiSuggestions, emailNotifications, joinedAt };
     savePrefs(storageKey, prefs);
   }, [preferredStack, aiSuggestions, emailNotifications, joinedAt, storageKey]);
 
@@ -117,31 +113,24 @@ export default function ProfilePage({ user, onLogout }) {
     setIsEditingStack(false);
   }
 
-  const joinedLabel = joinedAt
-    ? new Date(joinedAt).toLocaleDateString()
-    : "Not available";
+  const joinedLabel = joinedAt ? new Date(joinedAt).toLocaleDateString() : "Not available";
 
   const projectsLabel =
-    projectsCount == null
-      ? "Loading…"
-      : projectsError
-      ? "Error"
-      : projectsCount;
+    projectsCount == null ? "Loading…" : projectsError ? "Error" : projectsCount;
 
   return (
     <div className="profile-layout">
-      {/* Top bar – la fel ca restul aplicației, dar fără Logout aici */}
+      {/* Top bar */}
       <header className="profile-topbar">
-        <button
-          className="profile-back"
-          onClick={() => navigate("/projects")}
-        >
+        <button className="profile-back" onClick={() => navigate("/projects")} type="button">
           ← Back to projects
         </button>
 
         <div className="profile-topbar-right">
-          <button className="profile-topbar-btn">🔔 Notifications</button>
-          <button className="profile-topbar-btn profile-topbar-active">
+          {/* ✅ Notifications dropdown (same component as ProjectsPage) */}
+          <NotificationsBell userId={user?.id} />
+
+          <button className="profile-topbar-btn profile-topbar-active" type="button">
             👤 Profile
           </button>
         </div>
@@ -198,16 +187,10 @@ export default function ProfilePage({ user, onLogout }) {
                       placeholder="e.g. React, FastAPI, PostgreSQL"
                     />
                     <div className="profile-stack-edit-actions">
-                      <button
-                        type="button"
-                        onClick={handleCancelEditStack}
-                      >
+                      <button type="button" onClick={handleCancelEditStack}>
                         Cancel
                       </button>
-                      <button
-                        type="button"
-                        onClick={handleSaveStack}
-                      >
+                      <button type="button" onClick={handleSaveStack}>
                         Save
                       </button>
                     </div>
@@ -231,11 +214,7 @@ export default function ProfilePage({ user, onLogout }) {
                 </div>
                 <button
                   type="button"
-                  className={
-                    aiSuggestions
-                      ? "profile-pill profile-pill-on"
-                      : "profile-pill profile-pill-off"
-                  }
+                  className={aiSuggestions ? "profile-pill profile-pill-on" : "profile-pill profile-pill-off"}
                   onClick={() => setAiSuggestions((v) => !v)}
                 >
                   {aiSuggestions ? "Enabled" : "Disabled"}
@@ -252,9 +231,7 @@ export default function ProfilePage({ user, onLogout }) {
                 <button
                   type="button"
                   className={
-                    emailNotifications
-                      ? "profile-pill profile-pill-on"
-                      : "profile-pill profile-pill-off"
+                    emailNotifications ? "profile-pill profile-pill-on" : "profile-pill profile-pill-off"
                   }
                   onClick={() => setEmailNotifications((v) => !v)}
                 >
@@ -264,14 +241,13 @@ export default function ProfilePage({ user, onLogout }) {
             </div>
           </div>
 
-          {/* Descriere / About */}
+          {/* About */}
           <div className="profile-section">
             <h3>About</h3>
             <p className="profile-muted">
-              This is your profile page for the Smart Project Management
-              platform. Your preferences are stored locally in the browser and
-              used by the app to personalise AI features and notifications.
-              Later you can connect this to real backend settings.
+              This is your profile page for the Smart Project Management platform. Your preferences are stored locally
+              in the browser and used by the app to personalise AI features and notifications. Later you can connect
+              this to real backend settings.
             </p>
           </div>
 
@@ -280,14 +256,12 @@ export default function ProfilePage({ user, onLogout }) {
             <button
               className="profile-secondary-btn"
               onClick={() => navigate("/projects")}
+              type="button"
             >
               Back to projects
             </button>
             {onLogout && (
-              <button
-                className="profile-danger-btn"
-                onClick={onLogout}
-              >
+              <button className="profile-danger-btn" onClick={onLogout} type="button">
                 Log out
               </button>
             )}
