@@ -26,10 +26,30 @@ export default function ProjectsPage({ user /*, onLogout */ }) {
   const [saving, setSaving] = useState(false);
   const [createError, setCreateError] = useState("");
 
-  // Nume / email afișat lângă iconița de profil
   const displayName = user?.username || user?.name || user?.email || "Profile";
 
+  // ✅ IMPORTANT: asigură că user-ul există în localStorage
+  // ca projectService.js să poată trimite mereu X-User-Id
+  useEffect(() => {
+    try {
+      if (user?.id != null) {
+        localStorage.setItem("user", JSON.stringify(user));
+        localStorage.setItem("user_id", String(user.id));
+      }
+    } catch {
+      // ignore
+    }
+  }, [user]);
+
   async function loadProjects() {
+    // ✅ IMPORTANT: nu încărcăm până nu avem user.id
+    if (!user?.id) {
+      setProjects([]);
+      setLoading(false);
+      setLoadError("");
+      return;
+    }
+
     try {
       setLoading(true);
       setLoadError("");
@@ -44,7 +64,8 @@ export default function ProjectsPage({ user /*, onLogout */ }) {
 
   useEffect(() => {
     loadProjects();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   function openCreateModal() {
     setForm({ name: "", description: "", start_date: "" });
@@ -87,6 +108,9 @@ export default function ProjectsPage({ user /*, onLogout */ }) {
 
       setShowCreate(false);
       setForm({ name: "", description: "", start_date: "" });
+
+      // opțional: dacă vrei să intre direct în proiectul nou
+      // navigate(`/projects/${newProject.id}`);
     } catch (err) {
       setCreateError(err?.message || "Failed to create project");
     } finally {
@@ -117,10 +141,8 @@ export default function ProjectsPage({ user /*, onLogout */ }) {
         </div>
 
         <div className="projects-topbar__right">
-          {/* Notifications dropdown */}
           <NotificationsBell userId={user?.id} />
 
-          {/* Profil – merge în pagina /profile */}
           <button
             className="projects-topbar__icon-btn"
             onClick={() => navigate("/profile")}
@@ -161,7 +183,6 @@ export default function ProjectsPage({ user /*, onLogout */ }) {
         </section>
       </main>
 
-      {/* CREATE MODAL */}
       {showCreate && (
         <div className="projects-modal-backdrop" onClick={closeCreateModal}>
           <div className="projects-modal" onClick={(e) => e.stopPropagation()}>

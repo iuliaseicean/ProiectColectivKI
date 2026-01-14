@@ -1,5 +1,3 @@
-# backend/task/task_router.py
-
 from __future__ import annotations
 
 import logging
@@ -31,7 +29,6 @@ from backend.task.ai_service import (
 )
 
 logger = logging.getLogger("backend.task")
-
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 
@@ -71,6 +68,95 @@ def _ai_enabled_or_503() -> None:
             status_code=503,
             detail="AI functionality is disabled (set AI_ENABLED=true)",
         )
+
+
+def _get_user_id(request: Request) -> int:
+    """
+    TEMP helper (până ai auth complet):
+      1) request.state.user_id
+      2) request.state.user.id
+      3) header X-User-Id
+      4) fallback 1 (TEMP)
+    """
+    uid = getattr(request.state, "user_id", None)
+    if isinstance(uid, int) and uid > 0:
+        return uid
+
+    u = getattr(request.state, "user", None)
+    if u is not None:
+        u_id = getattr(u, "id", None)
+        if isinstance(u_id, int) and u_id > 0:
+            return u_id
+
+    h = request.headers.get("x-user-id")
+    if h:
+        try:
+            hid = int(h)
+            if hid > 0:
+                return hid
+        except Exception:
+            pass
+
+    return 1
+
+
+def _notify(
+    db: Session,
+    *,
+    user_id: int,
+    ntype: str,
+    title: str,
+    message: str,
+    project_id: Optional[int] = None,
+    task_id: Optional[int] = None,
+) -> None:
+    """
+    Creează o notificare. Nu face commit aici.
+    IMPORTANT: notifications.user_id e NOT NULL.
+    """
+    try:
+        n = Notification(
+            user_id=user_id,
+            type=ntype,
+            title=title,
+            message=message,
+            is_read=False,
+            created_at=datetime.utcnow(),
+            project_id=project_id,
+            task_id=task_id,
+        )
+        db.add(n)
+    except Exception:
+        logger.exception(
+            "notification_create_failed",
+            extra={"type": ntype, "project_id": project_id, "task_id": task_id, "user_id": user_id},
+        )
+
+
+def _get_owned_project(db: Session, project_id: int, user_id: int) -> Project:
+    """
+    Returnează proiectul doar dacă aparține user-ului.
+    """
+    project = db.query(Project).filter(Project.id == project_id, Project.user_id == user_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+
+def _get_owned_task(db: Session, task_id: int, user_id: int) -> Task:
+    """
+    Returnează task-ul doar dacă task-ul este într-un proiect al user-ului.
+    (join Task -> Project)
+    """
+    task = (
+        db.query(Task)
+        .join(Project, Project.id == Task.project_id)
+        .filter(Task.id == task_id, Project.user_id == user_id)
+        .first()
+    )
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
 
 
 def _build_history_text(
@@ -129,86 +215,14 @@ def _task_to_summary_item(t: Task) -> Dict[str, Any]:
 
 
 # =========================================================
-# USER ID helper (TEMP until auth is wired everywhere)
-# =========================================================
-def _get_user_id(request: Request) -> int:
-    """
-    Înlocuiește asta cu user-ul real din auth/JWT.
-    Variante suportate:
-      1) request.state.user_id (dacă ai middleware)
-      2) request.state.user.id (dacă pui user în state)
-      3) header X-User-Id (pentru test)
-      4) fallback 1 (TEMP)
-    """
-    # 1) state.user_id
-    uid = getattr(request.state, "user_id", None)
-    if isinstance(uid, int) and uid > 0:
-        return uid
-
-    # 2) state.user.id
-    u = getattr(request.state, "user", None)
-    if u is not None:
-        u_id = getattr(u, "id", None)
-        if isinstance(u_id, int) and u_id > 0:
-            return u_id
-
-    # 3) header for testing
-    h = request.headers.get("x-user-id")
-    if h:
-        try:
-            hid = int(h)
-            if hid > 0:
-                return hid
-        except Exception:
-            pass
-
-    # 4) fallback (TEMP)
-    return 1
-
-
-# =========================================================
-# NOTIFICATIONS
-# =========================================================
-def _notify(
-    db: Session,
-    *,
-    user_id: int,
-    ntype: str,
-    title: str,
-    message: str,
-    project_id: Optional[int] = None,
-    task_id: Optional[int] = None,
-) -> None:
-    """
-    Creează o notificare. Nu face commit aici.
-    IMPORTANT: user_id este obligatoriu (notifications.user_id NOT NULL).
-    """
-    try:
-        n = Notification(
-            user_id=user_id,
-            type=ntype,
-            title=title,
-            message=message,
-            is_read=False,
-            created_at=datetime.utcnow(),
-            project_id=project_id,
-            task_id=task_id,
-        )
-        db.add(n)
-    except Exception:
-        # nu vrem să stricăm endpoint-ul dacă notificarea eșuează
-        logger.exception(
-            "notification_create_failed",
-            extra={"type": ntype, "project_id": project_id, "task_id": task_id},
-        )
-
-
-# =========================================================
-# CRUD TASKS
+# CRUD TASKS (scoped to user)
 # =========================================================
 @router.post("/", response_model=TaskRead)
 def create_task(data: TaskCreate, request: Request, db: Session = Depends(get_db)):
     user_id = _get_user_id(request)
+
+    # ✅ NU permite creare task într-un project care nu aparține user-ului
+    _get_owned_project(db, data.project_id, user_id)
 
     task = Task(
         title=data.title,
@@ -221,7 +235,7 @@ def create_task(data: TaskCreate, request: Request, db: Session = Depends(get_db
         source=getattr(data, "source", "manual"),
     )
     db.add(task)
-    db.flush()  # avem task.id fără commit
+    db.flush()
 
     _notify(
         db,
@@ -239,30 +253,40 @@ def create_task(data: TaskCreate, request: Request, db: Session = Depends(get_db
 
 
 @router.get("/", response_model=list[TaskRead])
-def get_all_tasks(db: Session = Depends(get_db)):
-    return db.query(Task).all()
+def get_all_tasks(request: Request, db: Session = Depends(get_db)):
+    """
+    Dacă vrei să existe, îl facem și pe ăsta scoped pe user.
+    """
+    user_id = _get_user_id(request)
+    return (
+        db.query(Task)
+        .join(Project, Project.id == Task.project_id)
+        .filter(Project.user_id == user_id)
+        .order_by(Task.created_at.desc())
+        .all()
+    )
 
 
 @router.get("/project/{project_id}", response_model=list[TaskRead])
-def get_tasks_by_project(project_id: int, db: Session = Depends(get_db)):
-    return db.query(Task).filter(Task.project_id == project_id).all()
+def get_tasks_by_project(project_id: int, request: Request, db: Session = Depends(get_db)):
+    user_id = _get_user_id(request)
+
+    # ✅ verifică ownership la proiect (altfel poți vedea task-urile altuia)
+    _get_owned_project(db, project_id, user_id)
+
+    return db.query(Task).filter(Task.project_id == project_id).order_by(Task.created_at.asc()).all()
 
 
 @router.get("/{task_id}", response_model=TaskRead)
-def get_task(task_id: int, db: Session = Depends(get_db)):
-    task = db.get(Task, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return task
+def get_task(task_id: int, request: Request, db: Session = Depends(get_db)):
+    user_id = _get_user_id(request)
+    return _get_owned_task(db, task_id, user_id)
 
 
 @router.patch("/{task_id}", response_model=TaskRead)
 def update_task(task_id: int, data: TaskUpdate, request: Request, db: Session = Depends(get_db)):
     user_id = _get_user_id(request)
-
-    task = db.get(Task, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    task = _get_owned_task(db, task_id, user_id)
 
     old_title = task.title
     old_status = (task.status or "").lower()
@@ -319,23 +343,16 @@ def update_task(task_id: int, data: TaskUpdate, request: Request, db: Session = 
 @router.delete("/{task_id}", status_code=204)
 def delete_task(task_id: int, request: Request, db: Session = Depends(get_db)):
     user_id = _get_user_id(request)
+    task = _get_owned_task(db, task_id, user_id)
 
-    task = db.get(Task, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-
-    title = task.title
-    project_id = task.project_id
-
-    # notificarea nu trebuie să blocheze delete-ul
     _notify(
         db,
         user_id=user_id,
         ntype="task_deleted",
         title="Task deleted",
-        message=f"Task deleted: {title}",
-        project_id=project_id,
-        task_id=task_id,
+        message=f"Task deleted: {task.title}",
+        project_id=task.project_id,
+        task_id=task.id,
     )
 
     db.delete(task)
@@ -346,10 +363,7 @@ def delete_task(task_id: int, request: Request, db: Session = Depends(get_db)):
 @router.patch("/{task_id}/status", response_model=TaskRead)
 def update_status(task_id: int, status: str, request: Request, db: Session = Depends(get_db)):
     user_id = _get_user_id(request)
-
-    task = db.get(Task, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    task = _get_owned_task(db, task_id, user_id)
 
     old = (task.status or "").lower()
     task.status = status
@@ -376,10 +390,7 @@ def update_status(task_id: int, status: str, request: Request, db: Session = Dep
 @router.post("/{task_id}/generate-story", response_model=TaskRead)
 def generate_ai_story(task_id: int, request: Request, db: Session = Depends(get_db)):
     user_id = _get_user_id(request)
-
-    task = db.get(Task, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    task = _get_owned_task(db, task_id, user_id)
 
     ai_text = f"AI-generated story for task '{task.title}':\n\nBased on previous tasks..."
     task.ai_story = ai_text
@@ -402,14 +413,10 @@ def generate_ai_story(task_id: int, request: Request, db: Session = Depends(get_
 @router.post("/{task_id}/ai-description", response_model=TaskRead)
 def generate_ai_description(task_id: int, request: Request, db: Session = Depends(get_db)):
     user_id = _get_user_id(request)
-
     _ai_enabled_or_503()
 
-    task = db.get(Task, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-
-    project = db.get(Project, task.project_id)
+    task = _get_owned_task(db, task_id, user_id)
+    project = _get_owned_project(db, task.project_id, user_id)
 
     payload = {
         "title": task.title,
@@ -465,13 +472,16 @@ def generate_ai_description(task_id: int, request: Request, db: Session = Depend
 
 # =========================================================
 # AI DESCRIPTION (batch)
-# POST /tasks/ai/generate-descriptions
 # =========================================================
 @router.post("/ai/generate-descriptions", response_model=list[TaskRead])
-def generate_descriptions_batch(req: GenerateDescriptionsRequest, request: Request, db: Session = Depends(get_db)):
+def generate_descriptions_batch(
+    req: GenerateDescriptionsRequest, request: Request, db: Session = Depends(get_db)
+):
     user_id = _get_user_id(request)
-
     _ai_enabled_or_503()
+
+    # ✅ ownership check
+    _get_owned_project(db, req.project_id, user_id)
 
     q = db.query(Task).filter(Task.project_id == req.project_id)
 
@@ -489,7 +499,6 @@ def generate_descriptions_batch(req: GenerateDescriptionsRequest, request: Reque
 
     project = db.get(Project, req.project_id)
     ai_service = AIService()
-
     updated: list[Task] = []
 
     for task in tasks:
@@ -528,7 +537,6 @@ def generate_descriptions_batch(req: GenerateDescriptionsRequest, request: Reque
             task_id=task.id,
         )
 
-    # + notificare sumar, în aceeași tranzacție
     _notify(
         db,
         user_id=user_id,
@@ -546,14 +554,16 @@ def generate_descriptions_batch(req: GenerateDescriptionsRequest, request: Reque
 # AI EFFORT ESTIMATION (single)
 # =========================================================
 @router.post("/{task_id}/estimate", response_model=EffortEstimateResponse)
-def estimate_effort(task_id: int, req: Optional[EffortEstimateRequest] = None, request: Request = None, db: Session = Depends(get_db)):
+def estimate_effort(
+    task_id: int,
+    request: Request,
+    req: Optional[EffortEstimateRequest] = None,
+    db: Session = Depends(get_db),
+):
     user_id = _get_user_id(request)
-
     _ai_enabled_or_503()
 
-    task = db.get(Task, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    task = _get_owned_task(db, task_id, user_id)
 
     if (task.status or "").lower() == "done":
         raise HTTPException(status_code=409, detail="Cannot estimate effort for a DONE task")
@@ -564,11 +574,9 @@ def estimate_effort(task_id: int, req: Optional[EffortEstimateRequest] = None, r
         include_history = bool(req.include_history)
         max_history_tasks = int(req.max_history_tasks or 0)
 
-    project = db.get(Project, task.project_id)
+    project = _get_owned_project(db, task.project_id, user_id)
 
-    history_text = None
-    if include_history:
-        history_text = _build_history_text(db, task.project_id, task.id, max_history_tasks)
+    history_text = _build_history_text(db, task.project_id, task.id, max_history_tasks) if include_history else None
 
     payload = {
         "title": task.title,
@@ -626,8 +634,9 @@ def estimate_effort(task_id: int, req: Optional[EffortEstimateRequest] = None, r
 @router.post("/ai/estimate-effort", response_model=list[EffortEstimateResponse])
 def estimate_effort_all(req: EstimateEffortBatchRequest, request: Request, db: Session = Depends(get_db)):
     user_id = _get_user_id(request)
-
     _ai_enabled_or_503()
+
+    _get_owned_project(db, req.project_id, user_id)
 
     tasks = db.query(Task).filter(Task.project_id == req.project_id).all()
     if not tasks:
@@ -643,9 +652,7 @@ def estimate_effort_all(req: EstimateEffortBatchRequest, request: Request, db: S
         if (task.status or "").lower() == "done":
             continue
 
-        history_text = None
-        if req.include_history:
-            history_text = _build_history_text(db, req.project_id, task.id, req.max_history_tasks)
+        history_text = _build_history_text(db, req.project_id, task.id, req.max_history_tasks) if req.include_history else None
 
         payload = {
             "title": task.title,
@@ -713,12 +720,9 @@ def estimate_effort_all(req: EstimateEffortBatchRequest, request: Request, db: S
 @router.post("/ai/project-summary", response_model=ProjectSummaryResponse)
 def create_project_summary(req: ProjectSummaryRequest, request: Request, db: Session = Depends(get_db)):
     user_id = _get_user_id(request)
-
     _ai_enabled_or_503()
 
-    project = db.get(Project, req.project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    _get_owned_project(db, req.project_id, user_id)
 
     q = db.query(Task).filter(Task.project_id == req.project_id)
 
@@ -731,6 +735,8 @@ def create_project_summary(req: ProjectSummaryRequest, request: Request, db: Ses
         q = q.filter(Task.status != "done")
 
     tasks = q.order_by(desc(Task.created_at)).all()
+
+    project = db.get(Project, req.project_id)
 
     payload = {
         "project_name": getattr(project, "name", None),

@@ -1,23 +1,47 @@
-// src/api/taskService.js
+// frontend/src/api/taskService.js
 import axios from "axios";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
 // -----------------------------
-// Axios instance + Auth header
+// Axios instance
 // -----------------------------
 const api = axios.create({
   baseURL: API_URL,
 });
 
-// Atașăm automat Bearer token (token sau access_token)
+// ia user_id din localStorage (setat la login)
+function getUserIdValue() {
+  try {
+    const rawUser = localStorage.getItem("user");
+    if (rawUser) {
+      const u = JSON.parse(rawUser);
+      if (u?.id != null) return String(u.id);
+    }
+  } catch {
+    // ignore
+  }
+
+  const rawId = localStorage.getItem("user_id");
+  if (rawId) return String(rawId);
+
+  return null;
+}
+
+// Atașăm automat Bearer token + X-User-Id
 api.interceptors.request.use((config) => {
   const token =
     localStorage.getItem("token") || localStorage.getItem("access_token");
 
+  config.headers = config.headers ?? {};
+
   if (token) {
-    config.headers = config.headers ?? {};
     config.headers.Authorization = `Bearer ${token}`;
+  }
+
+  const uid = getUserIdValue();
+  if (uid) {
+    config.headers["X-User-Id"] = uid;
   }
 
   return config;
@@ -114,20 +138,15 @@ export async function generateAiStory(taskId) {
   }
 }
 
-// ✅ Single task description
-// Backend: POST /tasks/{task_id}/ai-description
 export async function generateAiDescription(taskId) {
   try {
     const res = await api.post(`/tasks/${taskId}/ai-description`);
-    return res.data; // TaskRead
+    return res.data;
   } catch (err) {
     throw new Error(extractError(err, "Failed to generate AI description"));
   }
 }
 
-// ✅ Batch generate descriptions (project-wide)
-// Backend: POST /tasks/ai/generate-descriptions
-// Body: { project_id, task_ids?: [ids] | null, include_done?: boolean }
 export async function generateDescriptionsForProject(
   projectId,
   options = { task_ids: null, include_done: false }
@@ -140,7 +159,7 @@ export async function generateDescriptionsForProject(
     };
 
     const res = await api.post(`/tasks/ai/generate-descriptions`, payload);
-    return res.data; // list[TaskRead]
+    return res.data;
   } catch (err) {
     throw new Error(
       extractError(err, "Failed to generate task descriptions for project")
@@ -148,9 +167,6 @@ export async function generateDescriptionsForProject(
   }
 }
 
-// ✅ Create project summary
-// Backend: POST /tasks/ai/project-summary
-// Body: { project_id, task_ids?: [ids] | null, include_done?: boolean }
 export async function createProjectSummary(
   projectId,
   options = { task_ids: null, include_done: true }
@@ -163,7 +179,7 @@ export async function createProjectSummary(
     };
 
     const res = await api.post(`/tasks/ai/project-summary`, payload);
-    return res.data; // { project_id, summary, method }
+    return res.data;
   } catch (err) {
     throw new Error(extractError(err, "Failed to create project summary"));
   }
@@ -172,10 +188,6 @@ export async function createProjectSummary(
 // -----------------------------
 // AI: effort estimation
 // -----------------------------
-/**
- * Estimare automată a efortului (Story Points)
- * Backend: POST /tasks/{task_id}/estimate
- */
 export async function estimateTaskEffort(
   taskId,
   options = { include_history: true, max_history_tasks: 20 }
@@ -187,14 +199,12 @@ export async function estimateTaskEffort(
     };
 
     const res = await api.post(`/tasks/${taskId}/estimate`, payload);
-    return res.data; // EffortEstimateResponse
+    return res.data;
   } catch (err) {
     throw new Error(extractError(err, "Failed to estimate task effort"));
   }
 }
 
-// ✅ Batch estimate (project-wide)
-// Backend: POST /tasks/ai/estimate-effort
 export async function estimateEffortForProject(
   projectId,
   options = { include_history: true, max_history_tasks: 20 }
@@ -207,7 +217,7 @@ export async function estimateEffortForProject(
     };
 
     const res = await api.post(`/tasks/ai/estimate-effort`, payload);
-    return res.data; // list[EffortEstimateResponse]
+    return res.data;
   } catch (err) {
     throw new Error(extractError(err, "Failed to estimate effort for project"));
   }

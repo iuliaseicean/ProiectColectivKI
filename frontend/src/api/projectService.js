@@ -2,37 +2,50 @@
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
+function getToken() {
+  return localStorage.getItem("token") || localStorage.getItem("access_token");
+}
+
 function getAuthHeader() {
-  const token =
-    localStorage.getItem("token") || localStorage.getItem("access_token");
+  const token = getToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-/**
- * Încearcă să ia user_id din:
- *  1) localStorage.user (JSON)
- *  2) localStorage.user_id
- *  3) fallback: null (nu trimitem header)
- *
- * Dacă în app-ul tău ai user în props, ideal e să refaci serviciile
- * să primească userId ca parametru. Dar asta merge acum fără să schimbi multe.
- */
-function getUserIdHeader() {
+function getUserIdValue() {
+  // 1) localStorage.user (JSON)
   try {
     const rawUser = localStorage.getItem("user");
     if (rawUser) {
       const u = JSON.parse(rawUser);
-      if (u?.id) return { "X-User-Id": String(u.id) };
+      if (u?.id != null) return String(u.id);
     }
   } catch {
     // ignore
   }
 
+  // 2) localStorage.user_id
   const rawId = localStorage.getItem("user_id");
-  if (rawId) return { "X-User-Id": String(rawId) };
+  if (rawId != null && rawId !== "") return String(rawId);
 
-  // dacă nu avem id, nu trimitem header (backend poate avea fallback 1)
-  return {};
+  return null;
+}
+
+/**
+ * include = true -> atașăm X-User-Id dacă există (altfel aruncăm eroare)
+ * include = false -> atașăm X-User-Id doar dacă există (fără să forțăm)
+ */
+function getUserIdHeader({ include } = { include: false }) {
+  const uid = getUserIdValue();
+
+  if (!uid) {
+    if (include) {
+      // eroare explicită, ca să știi exact ce lipsește
+      throw new Error("Missing user identity (X-User-Id). Please re-login.");
+    }
+    return {};
+  }
+
+  return { "X-User-Id": uid };
 }
 
 /**
@@ -67,12 +80,14 @@ async function handleJson(res, defaultError) {
 
 // --------------------------------------------------
 // GET /projects/
+// IMPORTANT: backend-ul tău poate cere identity.
+// Trimitem X-User-Id DOAR dacă există deja (fără preflight “forțat”).
 // --------------------------------------------------
 export async function fetchProjects() {
   const res = await fetch(`${API_URL}/projects/`, {
     headers: {
       ...getAuthHeader(),
-      ...getUserIdHeader(),
+      ...getUserIdHeader({ include: false }),
     },
   });
 
@@ -86,7 +101,7 @@ export async function fetchProjectById(id) {
   const res = await fetch(`${API_URL}/projects/${id}`, {
     headers: {
       ...getAuthHeader(),
-      ...getUserIdHeader(),
+      ...getUserIdHeader({ include: false }),
     },
   });
 
@@ -102,7 +117,7 @@ export async function createProject(payload) {
     headers: {
       "Content-Type": "application/json",
       ...getAuthHeader(),
-      ...getUserIdHeader(),
+      ...getUserIdHeader({ include: true }),
     },
     body: JSON.stringify(payload),
   });
@@ -119,7 +134,7 @@ export async function updateProject(id, payload) {
     headers: {
       "Content-Type": "application/json",
       ...getAuthHeader(),
-      ...getUserIdHeader(),
+      ...getUserIdHeader({ include: true }),
     },
     body: JSON.stringify(payload),
   });
@@ -136,7 +151,7 @@ export async function replaceProject(id, payload) {
     headers: {
       "Content-Type": "application/json",
       ...getAuthHeader(),
-      ...getUserIdHeader(),
+      ...getUserIdHeader({ include: true }),
     },
     body: JSON.stringify(payload),
   });
@@ -152,7 +167,7 @@ export async function deleteProject(id) {
     method: "DELETE",
     headers: {
       ...getAuthHeader(),
-      ...getUserIdHeader(),
+      ...getUserIdHeader({ include: true }),
     },
   });
 
@@ -161,14 +176,14 @@ export async function deleteProject(id) {
 }
 
 // --------------------------------------------------
-// ✅ AI: POST /projects/{id}/ai/summary
+// AI: POST /projects/{id}/ai/summary
 // --------------------------------------------------
 export async function createProjectSummary(projectId) {
   const res = await fetch(`${API_URL}/projects/${projectId}/ai/summary`, {
     method: "POST",
     headers: {
       ...getAuthHeader(),
-      ...getUserIdHeader(),
+      ...getUserIdHeader({ include: true }),
     },
   });
 
