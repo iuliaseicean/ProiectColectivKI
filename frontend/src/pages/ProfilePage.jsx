@@ -1,5 +1,5 @@
 // frontend/src/pages/ProfilePage.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { fetchProjects } from "../api/projectService";
@@ -32,20 +32,28 @@ export default function ProfilePage({ user, onLogout }) {
 
   // ------------ USER DISPLAY ------------
   const displayName = user?.username || user?.name || user?.email || "Your account";
-  const email = user?.email || "user@example.com";
-  const avatarLetter = displayName.charAt(0).toUpperCase();
+  const email = user?.email || "";
+  const avatarLetter = (displayName || "U").charAt(0).toUpperCase();
+
+  // ✅ IMPORTANT: cheie stabilă -> prefer user.id
+  const storageKey = useMemo(() => {
+    if (user?.id != null) return `${PREFS_KEY_PREFIX}id_${user.id}`;
+    if (user?.email) return `${PREFS_KEY_PREFIX}${user.email}`;
+    return null; // încă nu avem user stabil -> NU citim/scriem nimic
+  }, [user?.id, user?.email]);
 
   // ------------ STATE: projects count ------------
   const [projectsCount, setProjectsCount] = useState(null);
   const [projectsError, setProjectsError] = useState("");
 
   // ------------ STATE: preferences (localStorage) ------------
-  const storageKey = `${PREFS_KEY_PREFIX}${email}`;
-
   const [preferredStack, setPreferredStack] = useState("React, FastAPI");
   const [joinedAt, setJoinedAt] = useState(null);
   const [aiSuggestions, setAiSuggestions] = useState(true);
   const [emailNotifications, setEmailNotifications] = useState(false);
+
+  // ✅ flag: nu salvăm până nu am încărcat prefs prima dată
+  const [prefsReady, setPrefsReady] = useState(false);
 
   // UI state pentru editarea stack-ului
   const [isEditingStack, setIsEditingStack] = useState(false);
@@ -53,7 +61,6 @@ export default function ProfilePage({ user, onLogout }) {
 
   // ------------ LOAD DATA ON MOUNT ------------
   useEffect(() => {
-    // 1. Proiecte – luăm numărul din backend
     (async () => {
       try {
         const projects = await fetchProjects();
@@ -64,36 +71,62 @@ export default function ProfilePage({ user, onLogout }) {
     })();
   }, []);
 
+  // ✅ LOAD PREFS when storageKey becomes available / changes (user loaded)
   useEffect(() => {
-    // 2. Preferințe salvate local
+    if (!storageKey) return;
+
     const stored = loadPrefs(storageKey);
 
     if (stored) {
       if (stored.preferredStack) setPreferredStack(stored.preferredStack);
       if (stored.joinedAt) setJoinedAt(stored.joinedAt);
+
       if (typeof stored.aiSuggestions === "boolean") setAiSuggestions(stored.aiSuggestions);
+      else setAiSuggestions(true);
+
       if (typeof stored.emailNotifications === "boolean")
         setEmailNotifications(stored.emailNotifications);
+      else setEmailNotifications(false);
+
+      // dacă lipsește joinedAt în storage, îl setăm o singură dată
+      if (!stored.joinedAt) {
+        const now = new Date().toISOString();
+        setJoinedAt(now);
+        savePrefs(storageKey, { ...stored, joinedAt: now });
+      }
     } else {
-      // dacă nu avem nimic salvat, inițializăm un "joinedAt" acum
+      // dacă nu există nimic salvat, inițializăm o singură dată
       const now = new Date().toISOString();
-      setJoinedAt(now);
       const initialPrefs = {
-        preferredStack,
-        aiSuggestions,
-        emailNotifications,
+        preferredStack: "React, FastAPI",
+        aiSuggestions: true,
+        emailNotifications: false,
         joinedAt: now,
       };
+
+      setPreferredStack(initialPrefs.preferredStack);
+      setAiSuggestions(initialPrefs.aiSuggestions);
+      setEmailNotifications(initialPrefs.emailNotifications);
+      setJoinedAt(initialPrefs.joinedAt);
+
       savePrefs(storageKey, initialPrefs);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    setPrefsReady(true);
   }, [storageKey]);
 
-  // De fiecare dată când se schimbă preferințele – salvăm
+  // ✅ SAVE PREFS (doar după ce au fost încărcate)
   useEffect(() => {
+    if (!storageKey) return;
+    if (!prefsReady) return;
+
     const prefs = { preferredStack, aiSuggestions, emailNotifications, joinedAt };
     savePrefs(storageKey, prefs);
-  }, [preferredStack, aiSuggestions, emailNotifications, joinedAt, storageKey]);
+
+    // ✅ ajută ProjectDetailPage să se actualizeze în același tab
+    // (storage event nu pornește în același tab, așa că emitem un event custom)
+    window.dispatchEvent(new CustomEvent("pcai:prefs-changed", { detail: { key: storageKey, prefs } }));
+  }, [preferredStack, aiSuggestions, emailNotifications, joinedAt, storageKey, prefsReady]);
 
   // ------------ HANDLERS ------------
   function handleStartEditStack() {
@@ -127,7 +160,6 @@ export default function ProfilePage({ user, onLogout }) {
         </button>
 
         <div className="profile-topbar-right">
-          {/* ✅ Notifications dropdown (same component as ProjectsPage) */}
           <NotificationsBell userId={user?.id} />
 
           <button className="profile-topbar-btn profile-topbar-active" type="button">
@@ -144,7 +176,7 @@ export default function ProfilePage({ user, onLogout }) {
             <div className="profile-avatar">{avatarLetter}</div>
             <div>
               <h1 className="profile-name">{displayName}</h1>
-              <p className="profile-email">{email}</p>
+              <p className="profile-email">{email || "—"}</p>
             </div>
           </div>
 
@@ -170,11 +202,7 @@ export default function ProfilePage({ user, onLogout }) {
                 {!isEditingStack ? (
                   <div className="profile-stack-row">
                     <p>{preferredStack}</p>
-                    <button
-                      type="button"
-                      className="profile-link-btn"
-                      onClick={handleStartEditStack}
-                    >
+                    <button type="button" className="profile-link-btn" onClick={handleStartEditStack}>
                       Edit
                     </button>
                   </div>
@@ -200,7 +228,7 @@ export default function ProfilePage({ user, onLogout }) {
             </div>
           </div>
 
-          {/* Preferințe – AI + email notifications */}
+          {/* Preferințe */}
           <div className="profile-section">
             <h3>Preferences</h3>
 
@@ -208,14 +236,15 @@ export default function ProfilePage({ user, onLogout }) {
               <div className="profile-setting-row">
                 <div>
                   <strong>AI suggestions</strong>
-                  <p className="profile-muted">
-                    Allow AI to suggest task descriptions and estimates.
-                  </p>
+                  <p className="profile-muted">Allow AI to suggest task descriptions and estimates.</p>
                 </div>
+
                 <button
                   type="button"
                   className={aiSuggestions ? "profile-pill profile-pill-on" : "profile-pill profile-pill-off"}
                   onClick={() => setAiSuggestions((v) => !v)}
+                  disabled={!storageKey} // dacă nu avem user stabil
+                  title={!storageKey ? "User not loaded yet" : ""}
                 >
                   {aiSuggestions ? "Enabled" : "Disabled"}
                 </button>
@@ -228,12 +257,13 @@ export default function ProfilePage({ user, onLogout }) {
                     Receive a summary when project tasks change significantly.
                   </p>
                 </div>
+
                 <button
                   type="button"
-                  className={
-                    emailNotifications ? "profile-pill profile-pill-on" : "profile-pill profile-pill-off"
-                  }
+                  className={emailNotifications ? "profile-pill profile-pill-on" : "profile-pill profile-pill-off"}
                   onClick={() => setEmailNotifications((v) => !v)}
+                  disabled={!storageKey}
+                  title={!storageKey ? "User not loaded yet" : ""}
                 >
                   {emailNotifications ? "Enabled" : "Disabled"}
                 </button>
@@ -245,19 +275,13 @@ export default function ProfilePage({ user, onLogout }) {
           <div className="profile-section">
             <h3>About</h3>
             <p className="profile-muted">
-              This is your profile page for the Smart Project Management platform. Your preferences are stored locally
-              in the browser and used by the app to personalise AI features and notifications. Later you can connect
-              this to real backend settings.
+              Preferences are stored locally in the browser. Later you can connect this to real backend settings.
             </p>
           </div>
 
           {/* Butoane jos */}
           <div className="profile-footer">
-            <button
-              className="profile-secondary-btn"
-              onClick={() => navigate("/projects")}
-              type="button"
-            >
+            <button className="profile-secondary-btn" onClick={() => navigate("/projects")} type="button">
               Back to projects
             </button>
             {onLogout && (

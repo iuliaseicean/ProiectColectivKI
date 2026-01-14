@@ -23,13 +23,34 @@ import ConfirmDeleteModal from "../components/modals/ConfirmDeleteModal";
 
 import "./ProjectDetailPage.css";
 
-export default function ProjectDetailPage() {
+const PREFS_KEY_PREFIX = "pcai_profile_prefs_";
+
+function safeLoadPrefs(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function getPrefsKeyForUser(user) {
+  if (user?.id != null) return `${PREFS_KEY_PREFIX}id_${user.id}`;
+  if (user?.email) return `${PREFS_KEY_PREFIX}${user.email}`;
+  return null;
+}
+
+export default function ProjectDetailPage({ user }) {
   const { projectId } = useParams();
   const navigate = useNavigate();
 
   const [project, setProject] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+
+  // ✅ AI enabled (from Profile prefs)
+  const [aiEnabled, setAiEnabled] = useState(true);
 
   // edit project details
   const [isEditing, setIsEditing] = useState(false);
@@ -76,6 +97,50 @@ export default function ProjectDetailPage() {
       : aiMessageType === "info"
       ? "project-detail-ai-feedback project-detail-ai-feedback--info"
       : "project-detail-ai-feedback project-detail-ai-feedback--error";
+
+  // --------------------------------------------------
+  // ✅ Load AI preference + listen for changes (same tab)
+  // --------------------------------------------------
+  useEffect(() => {
+    const key = getPrefsKeyForUser(user);
+
+    function applyPrefs() {
+      if (!key) return;
+      const prefs = safeLoadPrefs(key);
+      if (prefs && typeof prefs.aiSuggestions === "boolean") {
+        setAiEnabled(prefs.aiSuggestions);
+      } else {
+        setAiEnabled(true); // default
+      }
+    }
+
+    applyPrefs();
+
+    function onPrefsChanged(e) {
+      // dacă event-ul e pentru alt user, ignorăm
+      const eventKey = e?.detail?.key;
+      if (key && eventKey && eventKey !== key) return;
+      applyPrefs();
+
+      // dacă ai dezactivat AI, curățăm state-ul AI ca să nu rămână mesaje/scope
+      const prefs = key ? safeLoadPrefs(key) : null;
+      if (prefs && prefs.aiSuggestions === false) {
+        setAiBusy(false);
+        setAiMessage("");
+        setProjectSummary("");
+        setAiScope("open");
+        setSelectedTaskIds(new Set());
+      }
+    }
+
+    window.addEventListener("pcai:prefs-changed", onPrefsChanged);
+    window.addEventListener("storage", applyPrefs); // pentru cazul alt tab
+
+    return () => {
+      window.removeEventListener("pcai:prefs-changed", onPrefsChanged);
+      window.removeEventListener("storage", applyPrefs);
+    };
+  }, [user]);
 
   // --------------------------------------------------
   // Load project
@@ -149,7 +214,6 @@ export default function ProjectDetailPage() {
 
       setTasks(normalized);
 
-      // keep only existing IDs in selection
       setSelectedTaskIds((prev) => {
         const next = new Set();
         const valid = new Set(normalized.map((t) => t.id));
@@ -710,111 +774,117 @@ export default function ProjectDetailPage() {
             )}
           </div>
 
-          {/* AI */}
+          {/* ✅ AI: render only when enabled */}
           <div className="project-detail-column">
             <h2>AI Assistant</h2>
-            <p className="project-detail-subtitle">Project-wide AI actions: run AI on tasks in this project.</p>
 
-            {/* ✅ IMPORTANT: class names updated to match ProjectDetailPage.css */}
-            <div>
-              {/* Scope row */}
-              <div className="project-detail-ai-controls">
-                <label style={{ fontWeight: 600 }}>Scope</label>
+            {!aiEnabled ? (
+              <p className="project-detail-subtitle">
+                AI suggestions are disabled in your Profile. Enable them to use AI tools.
+              </p>
+            ) : (
+              <>
+                <p className="project-detail-subtitle">Project-wide AI actions: run AI on tasks in this project.</p>
 
-                <div style={{ display: "flex", alignItems: "center", gap: 10, width: "100%" }}>
-                  <select
-                    value={aiScope}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setAiScope(v);
-                      setAiMessage("");
-                      setProjectSummary("");
-                      if (v !== "selected") setSelectedTaskIds(new Set());
-                    }}
-                    disabled={aiBusy}
-                    style={{ flex: 1 }}
-                  >
-                    <option value="open">Open tasks (TODO / IN_PROGRESS)</option>
-                    <option value="all">All tasks</option>
-                    <option value="selected">Selected tasks</option>
-                  </select>
+                {/* Scope row */}
+                <div className="project-detail-ai-controls">
+                  <label style={{ fontWeight: 600 }}>Scope</label>
 
-                  <span style={{ fontSize: 12, color: "#666", fontWeight: 800, whiteSpace: "nowrap" }}>
-                    {scopeCount} tasks
-                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, width: "100%" }}>
+                    <select
+                      value={aiScope}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setAiScope(v);
+                        setAiMessage("");
+                        setProjectSummary("");
+                        if (v !== "selected") setSelectedTaskIds(new Set());
+                      }}
+                      disabled={aiBusy}
+                      style={{ flex: 1 }}
+                    >
+                      <option value="open">Open tasks (TODO / IN_PROGRESS)</option>
+                      <option value="all">All tasks</option>
+                      <option value="selected">Selected tasks</option>
+                    </select>
+
+                    <span style={{ fontSize: 12, color: "#666", fontWeight: 800, whiteSpace: "nowrap" }}>
+                      {scopeCount} tasks
+                    </span>
+                  </div>
                 </div>
-              </div>
 
-              {/* Utility buttons */}
-              <div className="project-detail-ai-selection-actions">
-                <button type="button" onClick={selectAllVisible} disabled={aiBusy || tasks.length === 0}>
-                  Select visible
-                </button>
+                {/* Utility buttons */}
+                <div className="project-detail-ai-selection-actions">
+                  <button type="button" onClick={selectAllVisible} disabled={aiBusy || tasks.length === 0}>
+                    Select visible
+                  </button>
 
-                <button type="button" onClick={clearSelection} disabled={aiBusy}>
-                  Clear
-                </button>
-              </div>
+                  <button type="button" onClick={clearSelection} disabled={aiBusy}>
+                    Clear
+                  </button>
+                </div>
 
-              {(aiScope === "selected" || selectedTaskIds.size > 0) && (
-                <div className="ai-selection">
-                  <div className="ai-selection-head">
-                    <div className="hint">Click tasks below to (un)select:</div>
-                    <div className="hint" style={{ fontWeight: 800 }}>
-                      Selected: {selectedTaskIds.size}
+                {(aiScope === "selected" || selectedTaskIds.size > 0) && (
+                  <div className="ai-selection">
+                    <div className="ai-selection-head">
+                      <div className="hint">Click tasks below to (un)select:</div>
+                      <div className="hint" style={{ fontWeight: 800 }}>
+                        Selected: {selectedTaskIds.size}
+                      </div>
+                    </div>
+
+                    <div className="ai-task-checkboxes">
+                      {sortedTasks.map((t) => (
+                        <label key={t.id}>
+                          <input
+                            type="checkbox"
+                            checked={selectedTaskIds.has(t.id)}
+                            onChange={() => toggleSelectedTask(t.id)}
+                            disabled={aiBusy}
+                          />
+                          <span style={{ fontSize: 14, fontWeight: 800 }}>
+                            {t.title}{" "}
+                            <span style={{ color: "#777", fontWeight: 700 }}>({t.status})</span>
+                          </span>
+                        </label>
+                      ))}
                     </div>
                   </div>
+                )}
 
-                  <div className="ai-task-checkboxes">
-                    {sortedTasks.map((t) => (
-                      <label key={t.id}>
-                        <input
-                          type="checkbox"
-                          checked={selectedTaskIds.has(t.id)}
-                          onChange={() => toggleSelectedTask(t.id)}
-                          disabled={aiBusy}
-                        />
-                        <span style={{ fontSize: 14, fontWeight: 800 }}>
-                          {t.title}{" "}
-                          <span style={{ color: "#777", fontWeight: 700 }}>({t.status})</span>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
+                {/* Feedback */}
+                {aiMessage && <div className={aiFeedbackClass}>{aiMessage}</div>}
+
+                {/* Main AI buttons */}
+                <div className="project-detail-ai-buttons">
+                  <button onClick={handleGenerateDescriptions} disabled={aiBusy}>
+                    {aiBusy ? "Working..." : "Generate task descriptions"}
+                  </button>
+
+                  <button onClick={handleEstimateStoryPoints} disabled={aiBusy}>
+                    {aiBusy ? "Working..." : "Estimate story points"}
+                  </button>
+
+                  <button onClick={handleCreateProjectSummary} disabled={aiBusy}>
+                    {aiBusy ? "Working..." : "Create project summary"}
+                  </button>
                 </div>
-              )}
 
-              {/* Feedback */}
-              {aiMessage && <div className={aiFeedbackClass}>{aiMessage}</div>}
+                {projectSummary && (
+                  <div className="ai-summary">
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                      <strong>Project summary</strong>
+                      <button className="btn btn-ghost" onClick={handleCopySummary} disabled={aiBusy} type="button">
+                        Copy
+                      </button>
+                    </div>
 
-              {/* ✅ Main AI buttons (bigger / nicer via CSS) */}
-              <div className="project-detail-ai-buttons">
-                <button onClick={handleGenerateDescriptions} disabled={aiBusy}>
-                  {aiBusy ? "Working..." : "Generate task descriptions"}
-                </button>
-
-                <button onClick={handleEstimateStoryPoints} disabled={aiBusy}>
-                  {aiBusy ? "Working..." : "Estimate story points"}
-                </button>
-
-                <button onClick={handleCreateProjectSummary} disabled={aiBusy}>
-                  {aiBusy ? "Working..." : "Create project summary"}
-                </button>
-              </div>
-
-              {projectSummary && (
-                <div className="ai-summary">
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                    <strong>Project summary</strong>
-                    <button className="btn btn-ghost" onClick={handleCopySummary} disabled={aiBusy} type="button">
-                      Copy
-                    </button>
+                    <div style={{ marginTop: 10 }}>{projectSummary}</div>
                   </div>
-
-                  <div style={{ marginTop: 10 }}>{projectSummary}</div>
-                </div>
-              )}
-            </div>
+                )}
+              </>
+            )}
           </div>
         </section>
       </main>
