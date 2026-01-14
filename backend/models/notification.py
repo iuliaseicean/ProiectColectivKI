@@ -11,12 +11,14 @@ class Notification(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    # dacă ai user_id în sistem (users table), păstrează-l
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    # notificări per user
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
 
-    # opțional: legătură cu proiect/task pentru filtrare și navigare
-    project_id = Column(Integer, nullable=True, index=True)
-    task_id = Column(Integer, nullable=True, index=True)
+    # legături opționale (ca să poți filtra / naviga)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True)
+
+    # CHEIA pentru bug-ul tău la delete task:
+    task_id = Column(Integer, ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, index=True)
 
     # tip + text
     type = Column(String, nullable=False, default="info")  # info | success | warning | error
