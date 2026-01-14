@@ -110,19 +110,18 @@ export default function ProjectDetailPage({ user }) {
       if (prefs && typeof prefs.aiSuggestions === "boolean") {
         setAiEnabled(prefs.aiSuggestions);
       } else {
-        setAiEnabled(true); // default
+        setAiEnabled(true);
       }
     }
 
     applyPrefs();
 
     function onPrefsChanged(e) {
-      // dacă event-ul e pentru alt user, ignorăm
       const eventKey = e?.detail?.key;
       if (key && eventKey && eventKey !== key) return;
+
       applyPrefs();
 
-      // dacă ai dezactivat AI, curățăm state-ul AI ca să nu rămână mesaje/scope
       const prefs = key ? safeLoadPrefs(key) : null;
       if (prefs && prefs.aiSuggestions === false) {
         setAiBusy(false);
@@ -134,7 +133,7 @@ export default function ProjectDetailPage({ user }) {
     }
 
     window.addEventListener("pcai:prefs-changed", onPrefsChanged);
-    window.addEventListener("storage", applyPrefs); // pentru cazul alt tab
+    window.addEventListener("storage", applyPrefs);
 
     return () => {
       window.removeEventListener("pcai:prefs-changed", onPrefsChanged);
@@ -148,13 +147,18 @@ export default function ProjectDetailPage({ user }) {
   useEffect(() => {
     let cancelled = false;
 
+    // ✅ IMPORTANT: când se schimbă proiectul, golim task-urile imediat
+    setTasks([]);
+    setTasksError("");
+    setTasksLoading(false);
+    setSelectedTaskIds(new Set());
+
     setIsTaskModalOpen(false);
     setEditingTask(null);
     setIsDeleteOpen(false);
     setTaskToDelete(null);
 
     setAiScope("open");
-    setSelectedTaskIds(new Set());
     setAiMessage("");
     setAiBusy(false);
     setProjectSummary("");
@@ -187,16 +191,16 @@ export default function ProjectDetailPage({ user }) {
   }, [projectId]);
 
   // --------------------------------------------------
-  // Load tasks
+  // Load tasks (safe against stale projectId)
   // --------------------------------------------------
-  async function loadTasks() {
-    if (!projectId) return;
+  async function loadTasks(pid) {
+    if (!pid) return;
 
     try {
       setTasksLoading(true);
       setTasksError("");
 
-      const data = await getTasksByProject(projectId);
+      const data = await getTasksByProject(Number(pid));
       const arr = Array.isArray(data) ? data : data?.items ?? [];
 
       const normalized = arr.map((t) => ({
@@ -236,8 +240,59 @@ export default function ProjectDetailPage({ user }) {
   }
 
   useEffect(() => {
-    loadTasks();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let cancelled = false;
+    const pid = projectId;
+
+    (async () => {
+      // ✅ dacă user-ul schimbă proiectul rapid, evităm să setăm tasks pentru alt pid
+      try {
+        setTasksLoading(true);
+        setTasksError("");
+
+        const data = await getTasksByProject(Number(pid));
+        if (cancelled) return;
+
+        const arr = Array.isArray(data) ? data : data?.items ?? [];
+        const normalized = arr.map((t) => ({
+          ...t,
+          status: (t.status || "todo").toLowerCase(),
+          priority: t.priority ? String(t.priority).toLowerCase() : "medium",
+          complexity: t.complexity ? String(t.complexity).toLowerCase() : "medium",
+          assignee: t.assignee ?? "",
+          tags: t.tags ?? "",
+          story_points:
+            t.story_points !== undefined && t.story_points !== null
+              ? t.story_points
+              : t.estimated_story_points ?? null,
+        }));
+
+        setTasks(normalized);
+        setSelectedTaskIds((prev) => {
+          const next = new Set();
+          const valid = new Set(normalized.map((t) => t.id));
+          prev.forEach((id) => {
+            if (valid.has(id)) next.add(id);
+          });
+          return next;
+        });
+      } catch (err) {
+        if (!cancelled) {
+          console.error(err);
+          setTasksError(
+            err?.response?.data?.detail ||
+              err?.response?.data?.message ||
+              err?.message ||
+              "Failed to load tasks"
+          );
+        }
+      } finally {
+        if (!cancelled) setTasksLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [projectId]);
 
   // --------------------------------------------------
@@ -349,7 +404,7 @@ export default function ProjectDetailPage({ user }) {
 
       setIsTaskModalOpen(false);
       setEditingTask(null);
-      await loadTasks();
+      await loadTasks(projectId);
     } catch (err) {
       console.error(err);
       setTasksError(
@@ -365,7 +420,7 @@ export default function ProjectDetailPage({ user }) {
     try {
       setTasksError("");
       await updateTaskStatus(task.id, status);
-      await loadTasks();
+      await loadTasks(projectId);
     } catch (err) {
       console.error(err);
       setTasksError(err?.message || "Failed to update task status");
@@ -386,7 +441,7 @@ export default function ProjectDetailPage({ user }) {
       setTaskToDelete(null);
       setIsDeleteOpen(false);
 
-      await loadTasks();
+      await loadTasks(projectId);
     } catch (err) {
       console.error(err);
       setTasksError(err?.message || "Failed to delete task");
@@ -786,7 +841,6 @@ export default function ProjectDetailPage({ user }) {
               <>
                 <p className="project-detail-subtitle">Project-wide AI actions: run AI on tasks in this project.</p>
 
-                {/* Scope row */}
                 <div className="project-detail-ai-controls">
                   <label style={{ fontWeight: 600 }}>Scope</label>
 
@@ -814,7 +868,6 @@ export default function ProjectDetailPage({ user }) {
                   </div>
                 </div>
 
-                {/* Utility buttons */}
                 <div className="project-detail-ai-selection-actions">
                   <button type="button" onClick={selectAllVisible} disabled={aiBusy || tasks.length === 0}>
                     Select visible
@@ -853,10 +906,8 @@ export default function ProjectDetailPage({ user }) {
                   </div>
                 )}
 
-                {/* Feedback */}
                 {aiMessage && <div className={aiFeedbackClass}>{aiMessage}</div>}
 
-                {/* Main AI buttons */}
                 <div className="project-detail-ai-buttons">
                   <button onClick={handleGenerateDescriptions} disabled={aiBusy}>
                     {aiBusy ? "Working..." : "Generate task descriptions"}
@@ -889,7 +940,6 @@ export default function ProjectDetailPage({ user }) {
         </section>
       </main>
 
-      {/* Modals */}
       <TaskModal
         open={isTaskModalOpen}
         onClose={() => {

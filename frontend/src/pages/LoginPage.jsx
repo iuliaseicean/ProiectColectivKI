@@ -29,16 +29,44 @@ export default function LoginPage({ onLoginSuccess }) {
       }
 
       const data = await res.json();
-      localStorage.setItem("token", data.access_token);
+
+      // 1) Save token
+      const token = data.access_token;
+      localStorage.setItem("token", token);
+      localStorage.setItem("access_token", token); // optional, pt compatibilitate
+
+      // 2) Get user (din login response sau /auth/me)
+      let user = data.user;
+
+      if (!user) {
+        const meRes = await fetch(`${API_URL}/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!meRes.ok) {
+          const meData = await meRes.json().catch(() => ({}));
+          throw new Error(meData.detail || "Failed to fetch user profile (/auth/me)");
+        }
+
+        user = await meRes.json();
+      }
+
+      // 3) Save user + user_id for X-User-Id header logic
+      if (user?.id != null) {
+        localStorage.setItem("user", JSON.stringify(user));
+        localStorage.setItem("user_id", String(user.id));
+      } else {
+        // dacă backend-ul nu trimite id, atunci trebuie fixat în /auth/me sau /auth/login
+        throw new Error("Login succeeded, but user.id is missing. Fix backend to return user id.");
+      }
 
       setLoginSuccess("You are now logged in! 🎉");
 
-      // notifică componenta părinte
-      if (onLoginSuccess) onLoginSuccess(data.access_token);
+      // notify parent
+      if (onLoginSuccess) onLoginSuccess(token, user);
 
-      // redirect ușor întârziat
-      setTimeout(() => (window.location.href = "/"), 1200);
-
+      // redirect
+      setTimeout(() => (window.location.href = "/"), 400);
     } catch (err) {
       setError(err.message);
     } finally {

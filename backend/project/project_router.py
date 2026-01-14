@@ -1,5 +1,3 @@
-# backend/project/project_router.py
-
 from __future__ import annotations
 
 import logging
@@ -9,6 +7,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.auth.auth_router import get_db
@@ -40,16 +39,14 @@ def _ai_enabled_or_503() -> None:
 
 def _get_user_id(request: Request) -> int:
     """
-    TEMP helper:
-    - dacă nu ai auth completă, poți trimite header X-User-Id din frontend.
-    - fallback 1 ca să nu pice DB (NOT NULL).
+    IMPORTANT:
+    - NU mai folosim fallback=1, pentru că asta „amestecă” datele userilor.
+    - Dacă nu avem user id, returnăm 401 ca să fie clar că frontend-ul nu trimite identitatea.
     """
-    # dacă ai middleware care pune user_id în request.state
     uid = getattr(request.state, "user_id", None)
     if isinstance(uid, int) and uid > 0:
         return uid
 
-    # fallback pe header
     h = request.headers.get("x-user-id")
     if h:
         try:
@@ -59,7 +56,7 @@ def _get_user_id(request: Request) -> int:
         except Exception:
             pass
 
-    return 1
+    raise HTTPException(status_code=401, detail="Missing user identity (X-User-Id or auth)")
 
 
 def _tasks_to_text(tasks: List[Task], max_tasks: int = 60) -> str:
@@ -87,14 +84,9 @@ def _notify(
     project_id: Optional[int] = None,
     task_id: Optional[int] = None,
 ) -> None:
-    """
-    Creează o notificare.
-    - NU face commit aici
-    - dacă notificarea eșuează, nu stricăm endpoint-ul
-    """
     try:
         n = Notification(
-            user_id=user_id,  # ✅ IMPORTANT (altfel crapă commit-ul)
+            user_id=user_id,
             type=ntype,
             title=title,
             message=message,
@@ -112,13 +104,55 @@ def _notify(
 
 
 # ==========================
-# CRUD: Projects
+# ✅ DEV MIGRATION: ensure projects.user_id exists
+# ==========================
+def _ensure_projects_user_id_column(db: Session) -> None:
+    """
+    Fix pentru SQLite dev:
+    - dacă tabela projects NU are user_id, o adăugăm.
+    - folosim DEFAULT 1 ca să nu fie NULL la rândurile existente.
+    """
+    try:
+        cols = db.execute(text("PRAGMA table_info(projects)")).fetchall()
+        col_names = {row[1] for row in cols}
+
+        if "user_id" in col_names:
+            return
+
+        logger.warning("DEV MIGRATION: adding projects.user_id column (SQLite)")
+
+        # IMPORTANT: punem DEFAULT 1 ca să nu fie NULL
+        db.execute(text("ALTER TABLE projects ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1"))
+
+        db.commit()
+        logger.warning("DEV MIGRATION: projects.user_id added with DEFAULT 1")
+    except Exception:
+        db.rollback()
+        logger.exception("DEV MIGRATION failed: could not ensure projects.user_id")
+        raise HTTPException(status_code=500, detail="Database migration failed for projects.user_id")
+
+
+def _get_owned_project(db: Session, project_id: int, user_id: int) -> Project:
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if getattr(project, "user_id", None) != user_id:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    return project
+
+
+# ==========================
+# CRUD: Projects (per user)
 # ==========================
 @router.post("/", response_model=ProjectRead)
 def create_project(data: ProjectCreate, request: Request, db: Session = Depends(get_db)):
+    _ensure_projects_user_id_column(db)
     user_id = _get_user_id(request)
 
     project = Project(
+        user_id=user_id,
         name=data.name,
         description=data.description,
         tech_stack=data.tech_stack,
@@ -127,7 +161,7 @@ def create_project(data: ProjectCreate, request: Request, db: Session = Depends(
         start_date=data.start_date,
     )
     db.add(project)
-    db.flush()  # ✅ avem project.id fără commit
+    db.flush()
 
     _notify(
         db,
@@ -144,25 +178,30 @@ def create_project(data: ProjectCreate, request: Request, db: Session = Depends(
 
 
 @router.get("/", response_model=list[ProjectRead])
-def get_all_projects(db: Session = Depends(get_db)):
-    return db.query(Project).all()
+def get_all_projects(request: Request, db: Session = Depends(get_db)):
+    _ensure_projects_user_id_column(db)
+    user_id = _get_user_id(request)
+
+    return (
+        db.query(Project)
+        .filter(Project.user_id == user_id)
+        .order_by(Project.created_at.desc())
+        .all()
+    )
 
 
 @router.get("/{project_id}", response_model=ProjectRead)
-def get_project(project_id: int, db: Session = Depends(get_db)):
-    project = db.get(Project, project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return project
+def get_project(project_id: int, request: Request, db: Session = Depends(get_db)):
+    _ensure_projects_user_id_column(db)
+    user_id = _get_user_id(request)
+    return _get_owned_project(db, project_id, user_id)
 
 
 @router.patch("/{project_id}", response_model=ProjectRead)
 def update_project(project_id: int, data: ProjectUpdate, request: Request, db: Session = Depends(get_db)):
+    _ensure_projects_user_id_column(db)
     user_id = _get_user_id(request)
-
-    project = db.get(Project, project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = _get_owned_project(db, project_id, user_id)
 
     old_name = project.name
     changed_fields: List[str] = []
@@ -204,20 +243,16 @@ def update_project(project_id: int, data: ProjectUpdate, request: Request, db: S
 
 @router.delete("/{project_id}", status_code=204)
 def delete_project(project_id: int, request: Request, db: Session = Depends(get_db)):
+    _ensure_projects_user_id_column(db)
     user_id = _get_user_id(request)
-
-    project = db.get(Project, project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    pname = project.name
+    project = _get_owned_project(db, project_id, user_id)
 
     _notify(
         db,
         user_id=user_id,
         ntype="project_deleted",
         title="Project deleted",
-        message=f"Project deleted: {pname}",
+        message=f"Project deleted: {project.name}",
         project_id=project_id,
     )
 
@@ -227,7 +262,7 @@ def delete_project(project_id: int, request: Request, db: Session = Depends(get_
 
 
 # ==========================
-# ✅ AI: Project Summary
+# ✅ AI: Project Summary (owned)
 # ==========================
 class ProjectSummaryRequest(BaseModel):
     task_ids: Optional[List[int]] = None
@@ -247,15 +282,14 @@ def create_project_summary(
     req: Optional[ProjectSummaryRequest] = None,
     db: Session = Depends(get_db),
 ):
+    _ensure_projects_user_id_column(db)
     _ai_enabled_or_503()
     user_id = _get_user_id(request)
 
     if req is None:
         req = ProjectSummaryRequest()
 
-    project = db.get(Project, project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = _get_owned_project(db, project_id, user_id)
 
     q = db.query(Task).filter(Task.project_id == project_id)
 
@@ -284,10 +318,7 @@ def create_project_summary(
         summary = ai.generate_project_summary(payload)
         method = ai.provider
     except (AIServiceTimeoutError, AIServiceInvalidResponseError, AIServiceError) as exc:
-        logger.warning(
-            "ai_project_summary_failed_fallback_placeholder",
-            extra={"project_id": project_id, "err": str(exc)},
-        )
+        logger.warning("ai_project_summary_failed_fallback_placeholder", extra={"project_id": project_id, "err": str(exc)})
         fb = AIService()
         fb.provider = "placeholder"
         summary = fb.generate_project_summary(payload)
@@ -304,8 +335,4 @@ def create_project_summary(
 
     db.commit()
 
-    return ProjectSummaryResponse(
-        project_id=project_id,
-        summary=summary,
-        method=method,
-    )
+    return ProjectSummaryResponse(project_id=project_id, summary=summary, method=method)
