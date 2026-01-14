@@ -9,17 +9,38 @@ function getAuthHeader() {
 }
 
 /**
+ * Încearcă să ia user_id din:
+ *  1) localStorage.user (JSON)
+ *  2) localStorage.user_id
+ *  3) fallback: null (nu trimitem header)
+ *
+ * Dacă în app-ul tău ai user în props, ideal e să refaci serviciile
+ * să primească userId ca parametru. Dar asta merge acum fără să schimbi multe.
+ */
+function getUserIdHeader() {
+  try {
+    const rawUser = localStorage.getItem("user");
+    if (rawUser) {
+      const u = JSON.parse(rawUser);
+      if (u?.id) return { "X-User-Id": String(u.id) };
+    }
+  } catch {
+    // ignore
+  }
+
+  const rawId = localStorage.getItem("user_id");
+  if (rawId) return { "X-User-Id": String(rawId) };
+
+  // dacă nu avem id, nu trimitem header (backend poate avea fallback 1)
+  return {};
+}
+
+/**
  * Helper: parsează răspunsul HTTP.
- * - dacă e 204 → returnează null fără să încerce res.json()
- * - dacă e ok și are JSON → întoarce JSON
- * - dacă nu e ok → aruncă Error cu un mesaj util
  */
 async function handleJson(res, defaultError) {
-  // 204 No Content => nu există body, deci nu facem res.json()
   if (res.status === 204) {
-    if (!res.ok) {
-      throw new Error(defaultError);
-    }
+    if (!res.ok) throw new Error(defaultError);
     return null;
   }
 
@@ -27,12 +48,10 @@ async function handleJson(res, defaultError) {
     try {
       return await res.json();
     } catch {
-      // răspuns ok, dar fără JSON valid
       return null;
     }
   }
 
-  // Eroare HTTP — încercăm să extragem mesaj
   let errMsg = defaultError;
 
   try {
@@ -51,7 +70,10 @@ async function handleJson(res, defaultError) {
 // --------------------------------------------------
 export async function fetchProjects() {
   const res = await fetch(`${API_URL}/projects/`, {
-    headers: { ...getAuthHeader() },
+    headers: {
+      ...getAuthHeader(),
+      ...getUserIdHeader(),
+    },
   });
 
   return handleJson(res, "Failed to load projects");
@@ -62,7 +84,10 @@ export async function fetchProjects() {
 // --------------------------------------------------
 export async function fetchProjectById(id) {
   const res = await fetch(`${API_URL}/projects/${id}`, {
-    headers: { ...getAuthHeader() },
+    headers: {
+      ...getAuthHeader(),
+      ...getUserIdHeader(),
+    },
   });
 
   return handleJson(res, "Project not found");
@@ -77,6 +102,7 @@ export async function createProject(payload) {
     headers: {
       "Content-Type": "application/json",
       ...getAuthHeader(),
+      ...getUserIdHeader(),
     },
     body: JSON.stringify(payload),
   });
@@ -93,6 +119,7 @@ export async function updateProject(id, payload) {
     headers: {
       "Content-Type": "application/json",
       ...getAuthHeader(),
+      ...getUserIdHeader(),
     },
     body: JSON.stringify(payload),
   });
@@ -102,7 +129,6 @@ export async function updateProject(id, payload) {
 
 // --------------------------------------------------
 // PUT /projects/{id}
-// (folosește-l doar dacă adaugi endpoint PUT în backend)
 // --------------------------------------------------
 export async function replaceProject(id, payload) {
   const res = await fetch(`${API_URL}/projects/${id}`, {
@@ -110,6 +136,7 @@ export async function replaceProject(id, payload) {
     headers: {
       "Content-Type": "application/json",
       ...getAuthHeader(),
+      ...getUserIdHeader(),
     },
     body: JSON.stringify(payload),
   });
@@ -123,7 +150,10 @@ export async function replaceProject(id, payload) {
 export async function deleteProject(id) {
   const res = await fetch(`${API_URL}/projects/${id}`, {
     method: "DELETE",
-    headers: { ...getAuthHeader() },
+    headers: {
+      ...getAuthHeader(),
+      ...getUserIdHeader(),
+    },
   });
 
   await handleJson(res, "Failed to delete project");
@@ -132,13 +162,13 @@ export async function deleteProject(id) {
 
 // --------------------------------------------------
 // ✅ AI: POST /projects/{id}/ai/summary
-// Returns: { project_id, summary, method }
 // --------------------------------------------------
 export async function createProjectSummary(projectId) {
   const res = await fetch(`${API_URL}/projects/${projectId}/ai/summary`, {
     method: "POST",
     headers: {
       ...getAuthHeader(),
+      ...getUserIdHeader(),
     },
   });
 
