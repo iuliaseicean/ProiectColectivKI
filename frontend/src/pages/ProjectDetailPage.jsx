@@ -2,7 +2,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import { fetchProjectById, updateProject, createProjectSummary } from "../api/projectService";
+import {
+  fetchProjectById,
+  updateProject,
+  createProjectSummary,
+} from "../api/projectService";
+
 import {
   getTasksByProject,
   createTask,
@@ -64,6 +69,13 @@ export default function ProjectDetailPage() {
     setAiMessageType(type);
     setAiMessage(msg);
   }
+
+  const aiFeedbackClass =
+    aiMessageType === "success"
+      ? "project-detail-ai-feedback project-detail-ai-feedback--success"
+      : aiMessageType === "info"
+      ? "project-detail-ai-feedback project-detail-ai-feedback--info"
+      : "project-detail-ai-feedback project-detail-ai-feedback--error";
 
   // --------------------------------------------------
   // Load project
@@ -597,9 +609,7 @@ export default function ProjectDetailPage() {
             </form>
           ) : (
             <>
-              <p className="project-detail-description">
-                {project.description || "No description yet."}
-              </p>
+              <p className="project-detail-description">{project.description || "No description yet."}</p>
 
               <div className="project-detail-info">
                 <div>
@@ -616,9 +626,7 @@ export default function ProjectDetailPage() {
                 </div>
                 <div>
                   <h4>Start date</h4>
-                  <p>
-                    {project.start_date ? new Date(project.start_date).toLocaleDateString() : "-"}
-                  </p>
+                  <p>{project.start_date ? new Date(project.start_date).toLocaleDateString() : "-"}</p>
                 </div>
               </div>
             </>
@@ -662,9 +670,7 @@ export default function ProjectDetailPage() {
                     <div className="project-detail-task-main">
                       <div>
                         <strong>{t.title}</strong>
-                        {t.description && (
-                          <span className="project-detail-task-desc"> — {t.description}</span>
-                        )}
+                        {t.description && <span className="project-detail-task-desc"> — {t.description}</span>}
 
                         <div className="project-detail-task-meta">
                           <span className={`meta-chip meta-${t.priority || "medium"}`}>
@@ -681,16 +687,11 @@ export default function ProjectDetailPage() {
                         </div>
                       </div>
 
-                      <span className={`project-detail-task-status badge-${t.status}`}>
-                        {t.status}
-                      </span>
+                      <span className={`project-detail-task-status badge-${t.status}`}>{t.status}</span>
                     </div>
 
                     <div className="project-detail-task-actions">
-                      <select
-                        value={t.status || "todo"}
-                        onChange={(e) => handleChangeStatus(t, e.target.value)}
-                      >
+                      <select value={t.status || "todo"} onChange={(e) => handleChangeStatus(t, e.target.value)}>
                         <option value="todo">To Do</option>
                         <option value="in_progress">In Progress</option>
                         <option value="done">Done</option>
@@ -712,15 +713,15 @@ export default function ProjectDetailPage() {
           {/* AI */}
           <div className="project-detail-column">
             <h2>AI Assistant</h2>
-            <p className="project-detail-subtitle">
-              Project-wide AI actions: run AI on tasks in this project.
-            </p>
+            <p className="project-detail-subtitle">Project-wide AI actions: run AI on tasks in this project.</p>
 
-            <div className="ai-panel">
-              <div className="ai-scope-row">
-                <label>Scope</label>
+            {/* ✅ IMPORTANT: class names updated to match ProjectDetailPage.css */}
+            <div>
+              {/* Scope row */}
+              <div className="project-detail-ai-controls">
+                <label style={{ fontWeight: 600 }}>Scope</label>
 
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, width: "100%" }}>
                   <select
                     value={aiScope}
                     onChange={(e) => {
@@ -731,34 +732,26 @@ export default function ProjectDetailPage() {
                       if (v !== "selected") setSelectedTaskIds(new Set());
                     }}
                     disabled={aiBusy}
+                    style={{ flex: 1 }}
                   >
                     <option value="open">Open tasks (TODO / IN_PROGRESS)</option>
                     <option value="all">All tasks</option>
                     <option value="selected">Selected tasks</option>
                   </select>
 
-                  <span style={{ fontSize: 12, color: "#666", fontWeight: 800 }}>
+                  <span style={{ fontSize: 12, color: "#666", fontWeight: 800, whiteSpace: "nowrap" }}>
                     {scopeCount} tasks
                   </span>
                 </div>
               </div>
 
-              <div style={{ display: "flex", gap: 10 }}>
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={selectAllVisible}
-                  disabled={aiBusy || tasks.length === 0}
-                >
+              {/* Utility buttons */}
+              <div className="project-detail-ai-selection-actions">
+                <button type="button" onClick={selectAllVisible} disabled={aiBusy || tasks.length === 0}>
                   Select visible
                 </button>
 
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={clearSelection}
-                  disabled={aiBusy}
-                >
+                <button type="button" onClick={clearSelection} disabled={aiBusy}>
                   Clear
                 </button>
               </div>
@@ -791,18 +784,20 @@ export default function ProjectDetailPage() {
                 </div>
               )}
 
-              {aiMessage && <div className={`ai-feedback ${aiMessageType}`}>{aiMessage}</div>}
+              {/* Feedback */}
+              {aiMessage && <div className={aiFeedbackClass}>{aiMessage}</div>}
 
-              <div className="ai-actions">
-                <button className="btn btn-primary" onClick={handleGenerateDescriptions} disabled={aiBusy}>
+              {/* ✅ Main AI buttons (bigger / nicer via CSS) */}
+              <div className="project-detail-ai-buttons">
+                <button onClick={handleGenerateDescriptions} disabled={aiBusy}>
                   {aiBusy ? "Working..." : "Generate task descriptions"}
                 </button>
 
-                <button className="btn" onClick={handleEstimateStoryPoints} disabled={aiBusy}>
+                <button onClick={handleEstimateStoryPoints} disabled={aiBusy}>
                   {aiBusy ? "Working..." : "Estimate story points"}
                 </button>
 
-                <button className="btn" onClick={handleCreateProjectSummary} disabled={aiBusy}>
+                <button onClick={handleCreateProjectSummary} disabled={aiBusy}>
                   {aiBusy ? "Working..." : "Create project summary"}
                 </button>
               </div>
@@ -811,7 +806,7 @@ export default function ProjectDetailPage() {
                 <div className="ai-summary">
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                     <strong>Project summary</strong>
-                    <button className="btn btn-ghost" onClick={handleCopySummary} disabled={aiBusy}>
+                    <button className="btn btn-ghost" onClick={handleCopySummary} disabled={aiBusy} type="button">
                       Copy
                     </button>
                   </div>
